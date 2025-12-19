@@ -154,16 +154,17 @@ impl<T> SlotCell<T> {
             )
         }
         let val = self.take_unchecked();
-        #[cfg(debug_assertions)]
-        self.last_modified.set(Location::caller().clone());
         val
     }
 
     #[inline(always)]
+    #[cfg_attr(debug_assertions, track_caller)]
     fn take_unchecked(&self) -> T {
         debug_assert!(!self.is_empty.get());
         let val = self.cell.replace(MaybeUninit::uninit());
         self.is_empty.set(true);
+        #[cfg(debug_assertions)]
+        self.last_modified.set(Location::caller().clone());
         unsafe { val.assume_init() }
     }
 
@@ -225,15 +226,16 @@ impl<T> SlotCell<T> {
             );
         }
         self.put_unchecked(val);
-        #[cfg(debug_assertions)]
-        self.last_modified.set(Location::caller().clone());
     }
 
     #[inline(always)]
+    #[cfg_attr(debug_assertions, track_caller)]
     fn put_unchecked(&self, val: T) {
         debug_assert!(self.is_empty.get());
         let _ = self.cell.replace(MaybeUninit::new(val));
         self.is_empty.set(false);
+        #[cfg(debug_assertions)]
+        self.last_modified.set(Location::caller().clone());
     }
 
     /// Replaces the current value in the cell with a new one.
@@ -368,6 +370,7 @@ impl<T> Drop for SlotCell<T> {
         if self.is_empty.get() {
             return;
         }
+        // Allow drop code to run
         let _ = self.take_unchecked();
     }
 }
