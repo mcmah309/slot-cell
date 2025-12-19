@@ -126,8 +126,7 @@ impl<T> SlotCell<T> {
     ///
     /// # Panics
     ///
-    /// Panics if the value has already been taken (and not put back), or if
-    /// the cell was created with `empty()` and never filled. In debug builds,
+    /// Panics if the slot is already empty. In debug builds,
     /// the panic message includes the location of the last modification.
     ///
     /// # Examples
@@ -139,17 +138,18 @@ impl<T> SlotCell<T> {
     /// let value = cell.take();
     /// assert_eq!(value, 42);
     /// ```
+    #[must_use]
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn take(&self) -> T {
         if self.is_empty.get() {
             #[cfg(not(debug_assertions))]
             panic!(
-                "The value has already been taken and never put back, or was create with `empty`."
+                "Attempted to `take` a value when the slot is already empty."
             );
             #[cfg(debug_assertions)]
             panic!(
-                "The value has already been taken and never put back, or was create with `empty`\n{}",
+                "Attempted to `take` a value when the slot is already empty.\n{}",
                 self.last_modified_msg()
             )
         }
@@ -168,7 +168,7 @@ impl<T> SlotCell<T> {
         unsafe { val.assume_init() }
     }
 
-    /// Checks whether the cell is currently empty (value has been taken).
+    /// Checks whether the slot is currently empty.
     ///
     /// Returns `true` if the cell currently contains a value, `false` if it's empty.
     ///
@@ -198,7 +198,7 @@ impl<T> SlotCell<T> {
     ///
     /// # Panics
     ///
-    /// Panics if the cell is already full. `SlotCell` enforces that a value
+    /// Panics if the slot is already filled. `SlotCell` enforces that a value
     /// must be taken before a new one can be put back. In debug builds,
     /// the panic message includes the location of the last modification.
     ///
@@ -218,10 +218,10 @@ impl<T> SlotCell<T> {
     pub fn put(&self, val: T) {
         if !self.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!("self has already been put back or was never taken.");
+            panic!("Attempted to `put` a value when the slot is already filled.");
             #[cfg(debug_assertions)]
             panic!(
-                "self has already been put back or was never taken.\n{}",
+                "Attempted to `put` a value when the slot is already filled.\n{}",
                 self.last_modified_msg()
             );
         }
@@ -246,7 +246,7 @@ impl<T> SlotCell<T> {
     ///
     /// # Panics
     ///
-    /// Panics if the cell is currently empty (taken). To fill an empty cell,
+    /// Panics if the slot is already empty. To fill an empty cell,
     /// use `put()` instead. In debug builds, the panic message includes the
     /// location of the last modification.
     ///
@@ -265,10 +265,10 @@ impl<T> SlotCell<T> {
     pub fn replace(&self, val: T) -> T {
         if self.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!("self is already taken or created with `empty`.");
+            panic!("Attempted to `replace` a value when the slot is already empty.");
             #[cfg(debug_assertions)]
             panic!(
-                "self is already taken or created with `empty`.\n{}",
+                "Attempted to `replace` a value when the slot is already empty.\n{}",
                 self.last_modified_msg()
             );
         }
@@ -286,7 +286,7 @@ impl<T> SlotCell<T> {
     ///
     /// # Panics
     ///
-    /// Panics if either `self` or `other` is currently empty (taken). In debug
+    /// Panics if either `self` or `other` is currently empty. In debug
     /// builds, the panic message includes the location of the last modification
     /// for the empty cell.
     ///
@@ -308,19 +308,19 @@ impl<T> SlotCell<T> {
     pub fn swap(&self, other: &Self) {
         if self.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!("self is already taken or created with `empty`.");
+            panic!("Attempted to `swap` a value when this slot is already empty.");
             #[cfg(debug_assertions)]
             panic!(
-                "self is already taken or created with `empty`.\n{}",
+                "Attempted to `swap` a value when this slot is already empty.\n{}",
                 self.last_modified_msg()
             );
         }
         if other.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!("other is already taken or created with `empty`.");
+            panic!("Attempted to `swap` a value when the other slot is already empty.");
             #[cfg(debug_assertions)]
             panic!(
-                "other is already taken or created with `empty`.\n{}",
+                "Attempted to `swap` a value when the other slot is already empty.\n{}",
                 other.last_modified_msg()
             );
         }
@@ -340,7 +340,7 @@ impl<T> SlotCell<T> {
     ///
     /// # Panics
     ///
-    /// Panics if the cell is currently empty (taken) or if already filled when attempting to return
+    /// Panics if the cell is currently empty or if already filled when attempting to return
     /// the value. In debug builds, the panic message includes the location of the last modification.
     ///
     /// # Examples
@@ -384,7 +384,7 @@ impl<T> SlotCell<T> {
     ///
     /// # Panics
     ///
-    /// Panics if the cell is currently empty (taken) or if already filled when attempting to return
+    /// Panics if the cell is currently empty or if already filled when attempting to return
     /// the value. In debug builds, the panic message includes the location of the last modification.
     ///
     /// # Examples
@@ -425,7 +425,7 @@ impl<T> SlotCell<T> {
     ///
     /// # Panics
     ///
-    /// Panics if `self` is empty (taken). In debug
+    /// Panics if `self` is empty. In debug
     /// builds, the panic message includes the location of the last modification
     /// for the empty cell.
     ///
