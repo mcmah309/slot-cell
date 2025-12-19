@@ -11,11 +11,24 @@ use std::fmt::Debug;
 ///
 /// Unlike `Cell<T>` or `Cell<Option<T>>`:
 /// - `T` does not need to implement `Copy`/`Clone`/`Default`, or a separate `T` needed, to take
-/// the value out
-/// - The cell enforces a correct usage patterns that mimics "borrow semantic" with a runtime check.
+/// the value out.
+/// - Implements `Debug`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`, and `Default` if `T` does.
+/// - Does not implement `Clone` or `Copy`, or require `T` to be `Clone` or `Copy` for certain operations.
+/// - Enforces a correct usage patterns that mimics "borrow semantic" with a runtime check.
+/// 
+/// Unlike `RefCell<T>`:
+/// - No borrow counting is used
+/// - Owned values rather references are returned
+/// 
+/// High level
+/// - Owned values are used over guards with references/lifetimes. Thus,
+/// it is up to the programmer to follow semantics around taking and returning values 
+/// or it will panic otherwise.
 /// - A value can only be taken once (until put back)
+/// - A value *should* be put back before dropping and will panic otherwise
+/// (Calling `into_inner` or `mem::forget` is safe way to remove this behavior).
 /// - A value can only be put back when the slot is empty
-/// - A value can only be set when not already taken
+/// - A value can only be replaced when not already taken
 ///
 /// In debug builds, `SlotCell` tracks the location of the last modification, providing
 /// helpful panic messages when usage rules are violated.
@@ -194,7 +207,7 @@ impl<T> SlotCell<T> {
         }
         let none = self.cell.replace(Some(val));
         debug_assert!(none.is_none());
-        // Since we know the value is `None`, this skips the check if a deconstructor is needed
+        // Since we know the value is `None`, this skips the check if a de-constructor is needed
         mem::forget(none);
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
@@ -218,13 +231,13 @@ impl<T> SlotCell<T> {
     /// # use slot_cell::SlotCell;
     ///
     /// let cell = SlotCell::new(42);
-    /// cell.set(100);
+    /// cell.replace(100);
     ///
     /// assert_eq!(cell.take(), 100);
     /// ```
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
-    pub fn set(&self, val: T) {
+    pub fn replace(&self, val: T) -> T {
         // SAFETY: This type is !Sync and no other references to the interior data will exist
         // at this point. So it is fine to temporarily check the interior contents without moving out.
         unsafe {
@@ -238,9 +251,10 @@ impl<T> SlotCell<T> {
                 );
             }
         }
-        let _ = self.cell.replace(Some(val));
+        let val = self.cell.replace(Some(val)).unwrap();
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
+        val
     }
 
     /// Swaps the values between two full `SlotCell`s.
@@ -318,11 +332,14 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn into_inner(self) -> T {
-        if let Some(val) = self.cell.into_inner() {
+        let val = self.cell.replace(None);
+        let val = if let Some(val) = val {
             val
         } else {
             panic!("self is empty, cannot extract inner value.");
-        }
+        };
+        mem::forget(self);
+        return val;
     }
 
     #[cfg(debug_assertions)]
@@ -436,6 +453,19 @@ impl<T> From<Cell<Option<T>>> for SlotCell<T> {
             cell: value,
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
+        }
+    }
+}
+
+/// We only do this drop check in debug mode since not checking will **not** cause `UB`.
+/// But semantically a user should always return the value when taken before the cell is dropped.
+/// If this panic is hit, it will likely inform the user of a logical inconsistency bug.
+/// Failing early to more easily detect the bug.
+#[cfg(debug_assertions)]
+impl<T> Drop for SlotCell<T> {
+    fn drop(&mut self) {
+        if self.is_taken() {
+            panic!("SlotCell was dropped while still taken. Value was never put back.\n{}", self.last_modified_msg());
         }
     }
 }
