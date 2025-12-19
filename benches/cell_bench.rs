@@ -84,5 +84,67 @@ fn bench_overhead(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_i32_update, bench_string_update, bench_overhead);
+// A large struct representing some game entity or complex state
+// Total size: ~1KB
+struct GameEntity {
+    position: [f64; 3],
+    velocity: [f64; 3],
+    rotation: [f64; 4],
+    health: f64,
+    inventory: [u32; 64],
+    status_effects: [u8; 128],
+    animation_state: [f32; 100],
+    metadata: [u64; 20],
+}
+
+impl GameEntity {
+    fn new() -> Self {
+        Self {
+            position: [0.0; 3],
+            velocity: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            health: 100.0,
+            inventory: [0; 64],
+            status_effects: [0; 128],
+            animation_state: [0.0; 100],
+            metadata: [0; 20],
+        }
+    }
+
+    fn update(&mut self) {
+        self.position[0] += self.velocity[0] * 0.016;
+        self.position[1] += self.velocity[1] * 0.016;
+        self.position[2] += self.velocity[2] * 0.016;
+        self.health = (self.health - 0.1).max(0.0);
+        self.animation_state[0] += 1.0;
+    }
+}
+
+fn bench_large_struct(c: &mut Criterion) {
+    let mut group = c.benchmark_group("GameEntity_Update");
+
+    group.bench_function("RefCell::borrow_mut", |b| {
+        let cell = RefCell::new(GameEntity::new());
+        b.iter(|| {
+            let cell = black_box(&cell);
+            let mut borrow = cell.borrow_mut();
+            borrow.update();
+            black_box(borrow);
+        })
+    });
+
+    group.bench_function("SlotCell::take_put", |b| {
+        let cell = SlotCell::new(GameEntity::new());
+        b.iter(|| {
+            let cell = black_box(&cell);
+            let mut val = cell.take();
+            val.update();
+            cell.put(black_box(val));
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_i32_update, bench_string_update, bench_overhead, bench_large_struct);
 criterion_main!(benches);
