@@ -329,6 +329,98 @@ impl<T> SlotCell<T> {
         self.last_modified.set(Location::caller().clone());
     }
 
+    /// Executes a closure with a mutable reference to the value inside the cell.
+    ///
+    /// This method provides a way to modify the contents of the `SlotCell` or perform
+    /// operations on it without needing to manually call `take()` and `put()`.
+    ///
+    /// Because `SlotCell` works by moving values, this method internally takes the
+    /// value out of the cell, passes it to your closure, and automatically puts
+    /// it back once the closure returns.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cell is currently empty (taken) or if already filled when attempting to return
+    /// the value. In debug builds, the panic message includes the location of the last modification.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slot_cell::SlotCell;
+    ///
+    /// let cell = SlotCell::new(String::from("Hello"));
+    ///
+    /// cell.with(|s| {
+    ///     s.push_str(", World!");
+    /// });
+    ///
+    /// assert_eq!(cell.into_inner(), "Hello, World!");
+    /// ```
+    ///
+    /// It can also return a value from the closure:
+    ///
+    /// ```
+    /// # use slot_cell::SlotCell;
+    /// let cell = SlotCell::new(10);
+    /// let is_even = cell.with(|x| *x % 2 == 0);
+    /// assert!(is_even);
+    /// ```
+    #[inline]
+    #[cfg_attr(debug_assertions, track_caller)]
+    pub fn with<R>(&self, f: impl FnOnce(&mut T) -> R) -> R {
+        let mut v = self.take();
+        let r = f(&mut v);
+        self.put(v);
+        r
+    }
+
+    /// Updates the value inside the cell by applying a transformation function.
+    ///
+    /// This method takes ownership of the value, passes it to the closure, and
+    /// puts the result back into the cell.
+    ///
+    /// Unlike [`with`](Self::with), which provides a mutable reference, `update`
+    /// allows you to consume the value and return a new one of the same type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the cell is currently empty (taken) or if already filled when attempting to return
+    /// the value. In debug builds, the panic message includes the location of the last modification.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slot_cell::SlotCell;
+    ///
+    /// let cell = SlotCell::new(5);
+    ///
+    /// // Multiply the value by 2
+    /// cell.update(|v| v * 2);
+    ///
+    /// assert_eq!(cell.take(), 10);
+    /// ```
+    ///
+    /// It can also be used to swap out owned data like a `String` or `Vec`:
+    ///
+    /// ```
+    /// # use slot_cell::SlotCell;
+    /// let cell = SlotCell::new(vec![1, 2, 3]);
+    ///
+    /// cell.update(|mut v| {
+    ///     v.push(4);
+    ///     v
+    /// });
+    ///
+    /// assert_eq!(cell.into_inner().len(), 4);
+    /// ```
+    #[inline]
+    #[cfg_attr(debug_assertions, track_caller)]
+    pub fn update(&self, f: impl FnOnce(T) -> T) {
+        let v = self.take();
+        let r = f(v);
+        self.put(r);
+    }
+
     /// Unwraps the value, consuming the cell.
     ///
     /// # Panics
@@ -689,5 +781,89 @@ mod tests {
                 slotcell_size
             );
         }
+    }
+
+    #[test]
+    fn test_with_mutation() {
+        let cell = SlotCell::new(String::from("Rust"));
+
+        cell.with(|s| {
+            s.push_str(" Programming");
+        });
+
+        assert_eq!(cell.take(), "Rust Programming");
+    }
+
+    #[test]
+    fn test_with_return_value() {
+        let cell = SlotCell::new(42);
+
+        let is_even = cell.with(|v| *v % 2 == 0);
+
+        assert!(is_even);
+        assert_eq!(cell.take(), 42);
+    }
+
+    #[test]
+    fn test_update_transformation() {
+        let cell = SlotCell::new(10);
+
+        cell.update(|v| v + 5);
+
+        assert_eq!(cell.take(), 15);
+    }
+
+    #[test]
+    fn test_update_string_buffer() {
+        let cell = SlotCell::new(vec![1, 2]);
+
+        cell.update(|mut v| {
+            v.push(3);
+            v
+        });
+
+        assert_eq!(cell.take(), vec![1, 2, 3]);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panic_with_empty() {
+        let cell: SlotCell<i32> = SlotCell::empty();
+        cell.with(|v| *v += 1);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panic_update_empty() {
+        let cell: SlotCell<i32> = SlotCell::empty();
+        cell.update(|v| v + 1);
+    }
+
+    #[test]
+    fn test_with_panic_safety() {
+        let cell = SlotCell::new(vec![1, 2, 3]);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cell.with(|_v| {
+                panic!("intentional panic");
+            });
+        }));
+
+        assert!(result.is_err());
+        assert!(cell.is_empty());
+    }
+
+    #[test]
+    fn test_update_panic_safety() {
+        let cell = SlotCell::new(vec![1, 2, 3]);
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            cell.update(|_v| {
+                panic!("intentional panic");
+            });
+        }));
+
+        assert!(result.is_err());
+        assert!(cell.is_empty());
     }
 }
