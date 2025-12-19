@@ -154,6 +154,8 @@ impl<T> SlotCell<T> {
             )
         }
         let val = self.take_unchecked();
+        #[cfg(debug_assertions)]
+        self.last_modified.set(Location::caller().clone());
         val
     }
 
@@ -163,8 +165,6 @@ impl<T> SlotCell<T> {
         debug_assert!(!self.is_empty.get());
         let val = self.cell.replace(MaybeUninit::uninit());
         self.is_empty.set(true);
-        #[cfg(debug_assertions)]
-        self.last_modified.set(Location::caller().clone());
         unsafe { val.assume_init() }
     }
 
@@ -226,6 +226,8 @@ impl<T> SlotCell<T> {
             );
         }
         self.put_unchecked(val);
+        #[cfg(debug_assertions)]
+        self.last_modified.set(Location::caller().clone());
     }
 
     #[inline(always)]
@@ -234,8 +236,6 @@ impl<T> SlotCell<T> {
         debug_assert!(self.is_empty.get());
         let _ = self.cell.replace(MaybeUninit::new(val));
         self.is_empty.set(false);
-        #[cfg(debug_assertions)]
-        self.last_modified.set(Location::caller().clone());
     }
 
     /// Replaces the current value in the cell with a new one.
