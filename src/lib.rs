@@ -8,9 +8,12 @@ use std::fmt::Debug;
 /// This is useful for scenarios where you need to move a value out of a structure temporarily,
 /// perform operations on it, and then return it. In practice `SlotCell` fills the same role as
 /// `RefCell` and acts more like a "lockless mutex", while:
-/// - potentially being more memory efficient depending on alignment
-/// - faster for small stack values
-/// - comparable for large stack values
+/// - Since backed by a simple [`Cell`]
+///     - Potentially more memory efficient depending on alignment
+///     - Faster for small stack values (1 register, <= 8 bytes)
+///     - Comparable for medium stack values (2 - 3 registers, <= 24 bytes)
+///     - Slower for large stack values (Consider `RefCell` or 
+///     moving data to heap if performance is the main concern)
 /// - **allowing owned access.**
 ///
 /// Unlike `Cell<T>` or `Cell<Option<T>>`:
