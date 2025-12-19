@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | **Access Pattern** | Take ownership (`T`) | Borrow reference (`&T` / `&mut T`) |
 | **Overhead** | Minimal (discriminant) | Borrow counter |
-| **Safety Check** | Runtime check on "is empty" | Runtime check on "is borrowed" |
+| **Safety Check** | Runtime check - "is empty" | Runtime check - "is borrowed" |
 | **Best For** | Small/Medium stack types | Large stack types, multiple reads |
 
 ---
