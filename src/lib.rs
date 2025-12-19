@@ -7,7 +7,11 @@ use std::fmt::Debug;
 /// `SlotCell<T>` wraps a value that can be temporarily "taken out" and later "put back".
 /// This is useful for scenarios where you need to move a value out of a structure temporarily,
 /// perform operations on it, and then return it. In practice `SlotCell` fills the same role as
-/// `RefCell` and acts more like a "lockless mutex", while being more efficient and allows access to owned values.
+/// `RefCell` and acts more like a "lockless mutex", while:
+/// - potentially being more memory efficient depending on alignment
+/// - faster for small stack values
+/// - comparable for large stack values
+/// - **allowing owned access.**
 ///
 /// Unlike `Cell<T>` or `Cell<Option<T>>`:
 /// - `T` does not need to implement `Copy`/`Clone`/`Default`, or a separate `T` needed, to take
@@ -15,14 +19,15 @@ use std::fmt::Debug;
 /// - Implements `Debug`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`, and `Default` if `T` does.
 /// - Does not implement `Clone` or `Copy`, or require `T` to be `Clone` or `Copy` for certain operations.
 /// - Enforces a correct usage patterns that mimics "borrow semantics" with a runtime check.
-/// 
+///
 /// Unlike `RefCell<T>`:
 /// - No borrow counting is used
 /// - Owned values rather references are returned
-/// 
+/// - No multiple read references
+///
 /// High level
 /// - Owned values are used over guards with references/lifetimes. Thus,
-/// it is up to the programmer to follow semantics around taking and returning values 
+/// it is up to the programmer to follow semantics around taking and returning values
 /// or it will panic otherwise.
 /// - A value can only be taken once (until put back)
 /// - A value can only be put back when the slot is empty
@@ -472,7 +477,6 @@ impl<T> From<Cell<Option<T>>> for SlotCell<T> {
 //     }
 // }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,7 +555,7 @@ mod tests {
         let c = SlotCell::new(6);
         assert_eq!(a, b);
         assert_ne!(a, c);
-        
+
         // Test equality with empty slots (they are equal)
         let _ = a.take();
         let _ = b.take();
@@ -571,5 +575,41 @@ mod tests {
         let debug_str = format!("{:?}", cell);
         assert!(debug_str.contains("SlotCell"));
         assert!(debug_str.contains("42"));
+    }
+
+    #[test]
+    fn test_slotcell_vs_refcell_size() {
+        use core::cell::{Cell, RefCell};
+        use core::mem::size_of;
+
+        type T = u32;
+
+        let slotcell_size = size_of::<SlotCell<T>>();
+        let refcell_size = size_of::<RefCell<T>>();
+        let cell_option_size = size_of::<Cell<Option<T>>>();
+
+        #[cfg(debug_assertions)]
+        {
+            let location_cell_size = size_of::<Cell<Location<'static>>>();
+
+            assert_eq!(
+                slotcell_size,
+                cell_option_size + location_cell_size,
+                "SlotCell<T> should be Cell<Option<T>> + debug tracking"
+            );
+        }
+
+        #[cfg(not(debug_assertions))]
+        {
+            assert_eq!(
+                slotcell_size, cell_option_size,
+                "SlotCell<T> should be exactly Cell<Option<T>> in release mode"
+            );
+
+            assert!(
+                refcell_size > slotcell_size,
+                "RefCell<T> should be larger than SlotCell<T> in release mode. Got {} and {}", refcell_size, slotcell_size
+            );
+        }
     }
 }
