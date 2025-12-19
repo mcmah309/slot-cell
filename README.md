@@ -81,7 +81,7 @@ Measured on a standard Criterion suite comparing `SlotCell<T>::take/put` vs `Ref
 | **i32** | Primitive Update | 1.49 ns | 640.77 ps | ~57% Faster |
 | **String** | Push Char | 1.34 ns | 5.79 ns | ~4.3x Slower |
 | **Large Struct (~1KB)** | Stack Only | 2.24 ns | 132.61 ns | ~59x Slower |
-| **Box<Large Struct>** | Heap | 2.24 ns | 2.23 ns | ~0.4% Faster |
+| **Box\<Large Struct\>** | Heap | 2.24 ns | 2.23 ns | ~0.4% Faster |
 
 
 ---
