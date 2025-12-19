@@ -18,7 +18,7 @@
 | Feature | `SlotCell<T>` | `RefCell<T>` |
 | --- | --- | --- |
 | **Access Pattern** | Take ownership (`T`) | Borrow reference (`&T` / `&mut T`) |
-| **Overhead** | Minimal (Enum discriminant) | Borrow counter |
+| **Overhead** | Minimal (discriminant) | Borrow counter |
 | **Safety Check** | Runtime check on "is empty" | Runtime check on "is borrowed" |
 | **Best For** | Small/Medium stack types | Large stack types, multiple reads |
 
@@ -72,8 +72,8 @@ Measured on a standard Criterion suite comparing `SlotCell<T>::take/put` vs `Ref
 
 | Type | Scenario | `RefCell` (Time) | `SlotCell` (Time) | Difference |
 | --- | --- | --- | --- | --- |
-| **i32** | Primitive Update | 1.49 ns | 640.77 ps | ~57% Faster |
 | **-** | Access Overhead | 1.31 ns | 586.05 ps | ~55% Faster |
+| **i32** | Primitive Update | 1.49 ns | 640.77 ps | ~57% Faster |
 | **String** | Push Char | 1.34 ns | 5.79 ns | ~4.3x Slower |
 | **Large Struct (~1KB)** | Update Fields | 2.24 ns | 132.61 ns | ~59x Slower |
 | **Box<Large Struct>** | Heap Update | 2.24 ns | 2.23 ns | ~0.4% Faster |
