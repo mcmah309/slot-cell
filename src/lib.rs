@@ -1,6 +1,6 @@
 use core::cell::Cell;
 
-struct SlotCell<T> {
+pub struct SlotCell<T> {
     cell: Cell<Option<T>>,
 }
 
