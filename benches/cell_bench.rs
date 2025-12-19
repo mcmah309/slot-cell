@@ -146,5 +146,38 @@ fn bench_large_struct(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_i32_update, bench_string_update, bench_overhead, bench_large_struct);
+fn bench_large_struct_on_heap(c: &mut Criterion) {
+    let mut group = c.benchmark_group("GameEntity_Update_On_Heap");
+
+    group.bench_function("RefCell::borrow_mut", |b| {
+        let cell = RefCell::new(Box::new(GameEntity::new()));
+        b.iter(|| {
+            let cell = black_box(&cell);
+            let mut borrow = cell.borrow_mut();
+            borrow.update();
+            black_box(borrow);
+        })
+    });
+
+    group.bench_function("SlotCell::take_put", |b| {
+        let cell = SlotCell::new(Box::new(GameEntity::new()));
+        b.iter(|| {
+            let cell = black_box(&cell);
+            let mut val = cell.take();
+            val.update();
+            cell.put(black_box(val));
+        })
+    });
+
+    group.finish();
+}
+
+criterion_group!(
+    benches,
+    bench_i32_update,
+    bench_string_update,
+    bench_overhead,
+    bench_large_struct,
+    bench_large_struct_on_heap
+);
 criterion_main!(benches);
