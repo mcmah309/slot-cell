@@ -1,7 +1,7 @@
 use core::cell::Cell;
-use core::{mem, panic::Location};
-use std::fmt::Debug;
-use std::mem::MaybeUninit;
+use core::fmt::Debug;
+use core::mem::MaybeUninit;
+use core::panic::Location;
 
 /// A cell type that enforces borrowing semantics (take/put) for interior mutability.
 ///
@@ -35,7 +35,7 @@ use std::mem::MaybeUninit;
 /// or it will panic otherwise.
 /// - A value can only be taken once (until put back)
 /// - A value can only be put back when the slot is empty
-/// - A value can only be replaced when not already taken
+/// - A value can only be replaced when not already empty
 ///
 /// In debug builds, `SlotCell` tracks the location of the last modification, providing
 /// helpful panic messages when usage rules are violated.
@@ -62,7 +62,7 @@ use std::mem::MaybeUninit;
 /// This type will panic if usage rules are violated (taking when empty, putting when full, etc.).
 /// In debug builds, panic messages include the location of the last modification.
 pub struct SlotCell<T> {
-    is_taken: Cell<bool>,
+    is_empty: Cell<bool>,
     cell: Cell<MaybeUninit<T>>,
     #[cfg(debug_assertions)]
     last_modified: Cell<Location<'static>>,
@@ -77,13 +77,13 @@ impl<T> SlotCell<T> {
     /// # use slot_cell::SlotCell;
     ///
     /// let cell = SlotCell::new(42);
-    /// assert!(!cell.is_taken());
+    /// assert!(!cell.is_empty());
     /// ```
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn new(val: T) -> Self {
         Self {
-            is_taken: Cell::new(false),
+            is_empty: Cell::new(false),
             cell: Cell::new(MaybeUninit::new(val)),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
@@ -100,17 +100,17 @@ impl<T> SlotCell<T> {
     /// ```
     /// # use slot_cell::SlotCell;
     ///
-    /// let cell: SlotCell<i32> = SlotCell::late();
-    /// assert!(cell.is_taken());
+    /// let cell: SlotCell<i32> = SlotCell::empty();
+    /// assert!(cell.is_empty());
     ///
     /// cell.put(42);
-    /// assert!(!cell.is_taken());
+    /// assert!(!cell.is_empty());
     /// ```
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
-    pub fn late() -> Self {
+    pub fn empty() -> Self {
         Self {
-            is_taken: Cell::new(true),
+            is_empty: Cell::new(true),
             cell: Cell::new(MaybeUninit::uninit()),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
@@ -124,7 +124,7 @@ impl<T> SlotCell<T> {
     /// # Panics
     ///
     /// Panics if the value has already been taken (and not put back), or if
-    /// the cell was created with `late()` and never filled. In debug builds,
+    /// the cell was created with `empty()` and never filled. In debug builds,
     /// the panic message includes the location of the last modification.
     ///
     /// # Examples
@@ -139,14 +139,14 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn take(&self) -> T {
-        if self.is_taken.get() {
+        if self.is_empty.get() {
             #[cfg(not(debug_assertions))]
             panic!(
-                "The value has already been taken and never put back, or was create with `late`."
+                "The value has already been taken and never put back, or was create with `empty`."
             );
             #[cfg(debug_assertions)]
             panic!(
-                "The value has already been taken and never put back, or was create with `late`\n{}",
+                "The value has already been taken and never put back, or was create with `empty`\n{}",
                 self.last_modified_msg()
             )
         }
@@ -158,9 +158,9 @@ impl<T> SlotCell<T> {
 
     #[inline(always)]
     fn take_unchecked(&self) -> T {
-        debug_assert!(!self.is_taken.get());
+        debug_assert!(!self.is_empty.get());
         let val = self.cell.replace(MaybeUninit::uninit());
-        self.is_taken.set(true);
+        self.is_empty.set(true);
         unsafe { val.assume_init() }
     }
 
@@ -177,20 +177,20 @@ impl<T> SlotCell<T> {
     /// # use slot_cell::SlotCell;
     ///
     /// let cell = SlotCell::new(42);
-    /// assert!(!cell.is_taken());  // Has value, not taken
+    /// assert!(!cell.is_empty());  // Has value, not taken
     ///
     /// let _value = cell.take();
-    /// assert!(cell.is_taken());   // Now empty/taken
+    /// assert!(cell.is_empty());   // Now empty/taken
     /// ```
     #[inline]
-    pub fn is_taken(&self) -> bool {
-        self.is_taken.get()
+    pub fn is_empty(&self) -> bool {
+        self.is_empty.get()
     }
 
     /// Puts a value into the cell, filling an empty slot.
     ///
     /// This is used to return a value that was previously removed via `take()`,
-    /// or to initialize a cell created with `late()`.
+    /// or to initialize a cell created with `empty()`.
     ///
     /// # Panics
     ///
@@ -203,7 +203,7 @@ impl<T> SlotCell<T> {
     /// ```
     /// # use slot_cell::SlotCell;
     ///
-    /// let cell = SlotCell::late();
+    /// let cell = SlotCell::empty();
     /// cell.put(42); // Initialize empty slot
     ///
     /// let _ = cell.take();
@@ -212,7 +212,7 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn put(&self, val: T) {
-        if !self.is_taken.get() {
+        if !self.is_empty.get() {
             #[cfg(not(debug_assertions))]
             panic!("self has already been put back or was never taken.");
             #[cfg(debug_assertions)]
@@ -228,9 +228,9 @@ impl<T> SlotCell<T> {
 
     #[inline(always)]
     fn put_unchecked(&self, val: T) {
-        debug_assert!(self.is_taken.get());
+        debug_assert!(self.is_empty.get());
         let _ = self.cell.replace(MaybeUninit::new(val));
-        self.is_taken.set(false);
+        self.is_empty.set(false);
     }
 
     /// Replaces the current value in the cell with a new one.
@@ -258,12 +258,12 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn replace(&self, val: T) -> T {
-        if self.is_taken.get() {
+        if self.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!("self is already taken or created with `late`.");
+            panic!("self is already taken or created with `empty`.");
             #[cfg(debug_assertions)]
             panic!(
-                "self is already taken or created with `late`.\n{}",
+                "self is already taken or created with `empty`.\n{}",
                 self.last_modified_msg()
             );
         }
@@ -301,21 +301,21 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn swap(&self, other: &Self) {
-        if self.is_taken.get() {
+        if self.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!("self is already taken or created with `late`.");
+            panic!("self is already taken or created with `empty`.");
             #[cfg(debug_assertions)]
             panic!(
-                "self is already taken or created with `late`.\n{}",
+                "self is already taken or created with `empty`.\n{}",
                 self.last_modified_msg()
             );
         }
-        if other.is_taken.get() {
+        if other.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!("other is already taken.");
+            panic!("other is already taken or created with `empty`.");
             #[cfg(debug_assertions)]
             panic!(
-                "other is already taken or created with `late`.\n{}",
+                "other is already taken or created with `empty`.\n{}",
                 other.last_modified_msg()
             );
         }
@@ -362,7 +362,7 @@ impl<T> SlotCell<T> {
 
 impl<T> Drop for SlotCell<T> {
     fn drop(&mut self) {
-        if self.is_taken.get() {
+        if self.is_empty.get() {
             return;
         }
         let _ = self.take_unchecked();
@@ -375,7 +375,7 @@ where
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut binding = f.debug_struct("SlotCell");
-        let r = if self.is_taken.get() {
+        let r = if self.is_empty.get() {
             binding.field("cell", &"TAKEN")
         } else {
             let val = self.take_unchecked();
@@ -399,12 +399,12 @@ where
         if std::ptr::eq(self, other) {
             return true;
         }
-        let self_is_taken = self.is_taken.get();
-        let other_is_taken = other.is_taken.get();
-        if self_is_taken && other_is_taken {
+        let self_is_empty = self.is_empty.get();
+        let other_is_empty = other.is_empty.get();
+        if self_is_empty && other_is_empty {
             return true;
         }
-        if self_is_taken || other_is_taken {
+        if self_is_empty || other_is_empty {
             return false;
         }
         let val_a = self.take_unchecked();
@@ -424,15 +424,15 @@ where
         if std::ptr::eq(self, other) {
             return std::cmp::Ordering::Equal;
         }
-        let self_is_taken = self.is_taken.get();
-        let other_is_taken = other.is_taken.get();
-        if self_is_taken && other_is_taken {
+        let self_is_empty = self.is_empty.get();
+        let other_is_empty = other.is_empty.get();
+        if self_is_empty && other_is_empty {
             return std::cmp::Ordering::Equal;
         }
-        if self_is_taken {
+        if self_is_empty {
             return std::cmp::Ordering::Less;
         }
-        if other_is_taken {
+        if other_is_empty {
             return std::cmp::Ordering::Greater;
         }
         let val_a = self.take_unchecked();
@@ -452,15 +452,15 @@ where
         if std::ptr::eq(self, other) {
             return Some(std::cmp::Ordering::Equal);
         }
-        let self_is_taken = self.is_taken.get();
-        let other_is_taken = other.is_taken.get();
-        if self_is_taken && other_is_taken {
+        let self_is_empty = self.is_empty.get();
+        let other_is_empty = other.is_empty.get();
+        if self_is_empty && other_is_empty {
             return Some(std::cmp::Ordering::Equal);
         }
-        if self_is_taken {
+        if self_is_empty {
             return Some(std::cmp::Ordering::Less);
         }
-        if other_is_taken {
+        if other_is_empty {
             return Some(std::cmp::Ordering::Greater);
         }
         let val_a = self.take_unchecked();
@@ -477,7 +477,7 @@ where
     T: std::hash::Hash,
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        if self.is_taken.get() {
+        if self.is_empty.get() {
             0usize.hash(state);
         } else {
             let val = self.take_unchecked();
@@ -492,7 +492,7 @@ impl<T> Default for SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     fn default() -> Self {
         Self {
-            is_taken: Cell::new(true),
+            is_empty: Cell::new(true),
             cell: Cell::new(MaybeUninit::uninit()),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
@@ -511,12 +511,12 @@ impl<T> From<T> for SlotCell<T> {
 impl<T> From<Option<T>> for SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     fn from(value: Option<T>) -> Self {
-        let (is_taken, cell) = match value {
+        let (is_empty, cell) = match value {
             Some(value) => (false, MaybeUninit::new(value)),
             None => (true, MaybeUninit::uninit()),
         };
         Self {
-            is_taken: Cell::new(is_taken),
+            is_empty: Cell::new(is_empty),
             cell: Cell::new(cell),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
@@ -526,7 +526,7 @@ impl<T> From<Option<T>> for SlotCell<T> {
 
 impl<T> From<SlotCell<T>> for Option<T> {
     fn from(value: SlotCell<T>) -> Self {
-        if value.is_taken() {
+        if value.is_empty() {
             None
         } else {
             Some(value.into_inner())
@@ -541,7 +541,7 @@ impl<T> From<SlotCell<T>> for Option<T> {
 // #[cfg(debug_assertions)]
 // impl<T> Drop for SlotCell<T> {
 //     fn drop(&mut self) {
-//         if self.is_taken() {
+//         if self.is_empty() {
 //             panic!("SlotCell was dropped while still taken. Value was never put back.\n{}", self.last_modified_msg());
 //         }
 //     }
@@ -554,17 +554,17 @@ mod tests {
     #[test]
     fn test_new_and_take() {
         let cell = SlotCell::new(10);
-        assert!(!cell.is_taken());
+        assert!(!cell.is_empty());
         assert_eq!(cell.take(), 10);
-        assert!(cell.is_taken());
+        assert!(cell.is_empty());
     }
 
     #[test]
-    fn test_late_and_put() {
-        let cell: SlotCell<i32> = SlotCell::late();
-        assert!(cell.is_taken());
+    fn test_empty_and_put() {
+        let cell: SlotCell<i32> = SlotCell::empty();
+        assert!(cell.is_empty());
         cell.put(20);
-        assert!(!cell.is_taken());
+        assert!(!cell.is_empty());
         assert_eq!(cell.take(), 20);
     }
 
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_panic_replace_empty() {
-        let cell: SlotCell<i32> = SlotCell::late();
+        let cell: SlotCell<i32> = SlotCell::empty();
         cell.replace(10);
     }
 
