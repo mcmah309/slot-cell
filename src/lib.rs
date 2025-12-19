@@ -1,6 +1,7 @@
 use core::cell::Cell;
 use core::{mem, panic::Location};
 use std::fmt::Debug;
+use std::mem::MaybeUninit;
 
 /// A cell type that enforces borrowing semantics (take/put) for interior mutability.
 ///
@@ -12,7 +13,7 @@ use std::fmt::Debug;
 ///     - Potentially more memory efficient depending on alignment
 ///     - Faster for small stack values (1 register, <= 8 bytes)
 ///     - Comparable for medium stack values (2 - 3 registers, <= 24 bytes)
-///     - Slower for large stack values (Consider `RefCell` or 
+///     - Slower for large stack values (Consider `RefCell` or
 ///     moving data to heap if performance is the main concern)
 /// - **allowing owned access.**
 ///
@@ -61,7 +62,8 @@ use std::fmt::Debug;
 /// This type will panic if usage rules are violated (taking when empty, putting when full, etc.).
 /// In debug builds, panic messages include the location of the last modification.
 pub struct SlotCell<T> {
-    cell: Cell<Option<T>>,
+    is_taken: Cell<bool>,
+    cell: Cell<MaybeUninit<T>>,
     #[cfg(debug_assertions)]
     last_modified: Cell<Location<'static>>,
 }
@@ -81,7 +83,8 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn new(val: T) -> Self {
         Self {
-            cell: Cell::new(Some(val)),
+            is_taken: Cell::new(false),
+            cell: Cell::new(MaybeUninit::new(val)),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
         }
@@ -107,7 +110,8 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn late() -> Self {
         Self {
-            cell: Cell::new(None),
+            is_taken: Cell::new(true),
+            cell: Cell::new(MaybeUninit::uninit()),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
         }
@@ -135,17 +139,28 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn take(&self) -> T {
-        #[cfg(not(debug_assertions))]
-        let val = self.cell.replace(None).expect(
-            "The value has already been taken and never put back, or was create with `late`.",
-        );
-        #[cfg(debug_assertions)]
-        let val = self.cell.replace(None).unwrap_or_else(|| {
-            panic!("The value has already been taken and never put back, or was create with `late`\n{}", self.last_modified_msg())
-        });
+        if self.is_taken.get() {
+            #[cfg(not(debug_assertions))]
+            panic!(
+                "The value has already been taken and never put back, or was create with `late`."
+            );
+            #[cfg(debug_assertions)]
+            panic!(
+                "The value has already been taken and never put back, or was create with `late`\n{}",
+                self.last_modified_msg()
+            )
+        }
+        let val = self.take_raw();
+        self.is_taken.set(true);
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
         val
+    }
+
+    #[inline(always)]
+    fn take_raw(&self) -> T {
+        let val = self.cell.replace(MaybeUninit::uninit());
+        unsafe { val.assume_init() }
     }
 
     /// Checks whether the cell is currently empty (value has been taken).
@@ -168,9 +183,7 @@ impl<T> SlotCell<T> {
     /// ```
     #[inline]
     pub fn is_taken(&self) -> bool {
-        // SAFETY: This type is !Sync and no other references to the interior data will exist
-        // at this point. So it is fine to temporarily check the interior contents without moving out.
-        unsafe { (*self.cell.as_ptr()).is_none() }
+        self.is_taken.get()
     }
 
     /// Puts a value into the cell, filling an empty slot.
@@ -198,25 +211,24 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn put(&self, val: T) {
-        // SAFETY: This type is !Sync and no other references to the interior data will exist
-        // at this point. So it is fine to temporarily check the interior contents without moving out.
-        unsafe {
-            if (*self.cell.as_ptr()).is_some() {
-                #[cfg(not(debug_assertions))]
-                panic!("self has already been put back or was never taken.");
-                #[cfg(debug_assertions)]
-                panic!(
-                    "self has already been put back or was never taken.\n{}",
-                    self.last_modified_msg()
-                );
-            }
+        if !self.is_taken.get() {
+            #[cfg(not(debug_assertions))]
+            panic!("self has already been put back or was never taken.");
+            #[cfg(debug_assertions)]
+            panic!(
+                "self has already been put back or was never taken.\n{}",
+                self.last_modified_msg()
+            );
         }
-        let none = self.cell.replace(Some(val));
-        debug_assert!(none.is_none());
-        // Since we know the value is `None`, this skips the check if a de-constructor is needed
-        mem::forget(none);
+        self.put_raw(val);
+        self.is_taken.set(false);
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
+    }
+
+    #[inline(always)]
+    fn put_raw(&self, val: T) {
+        let _ = self.cell.replace(MaybeUninit::new(val));
     }
 
     /// Replaces the current value in the cell with a new one.
@@ -244,20 +256,17 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn replace(&self, val: T) -> T {
-        // SAFETY: This type is !Sync and no other references to the interior data will exist
-        // at this point. So it is fine to temporarily check the interior contents without moving out.
-        unsafe {
-            if (*self.cell.as_ptr()).is_none() {
-                #[cfg(not(debug_assertions))]
-                panic!("self is already taken or created with `late`.");
-                #[cfg(debug_assertions)]
-                panic!(
-                    "self is already taken or created with `late`.\n{}",
-                    self.last_modified_msg()
-                );
-            }
+        if self.is_taken.get() {
+            #[cfg(not(debug_assertions))]
+            panic!("self is already taken or created with `late`.");
+            #[cfg(debug_assertions)]
+            panic!(
+                "self is already taken or created with `late`.\n{}",
+                self.last_modified_msg()
+            );
         }
-        let val = self.cell.replace(Some(val)).unwrap();
+        let val = self.cell.replace(MaybeUninit::new(val));
+        let val = unsafe { val.assume_init() };
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
         val
@@ -290,27 +299,23 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn swap(&self, other: &Self) {
-        // SAFETY: This type is !Sync and no other references to the interior data will exist
-        // at this point. So it is fine to temporarily check the interior contents without moving out.
-        unsafe {
-            if (*self.cell.as_ptr()).is_none() {
-                #[cfg(not(debug_assertions))]
-                panic!("self is already taken or created with `late`.");
-                #[cfg(debug_assertions)]
-                panic!(
-                    "self is already taken or created with `late`.\n{}",
-                    self.last_modified_msg()
-                );
-            }
-            if (*other.cell.as_ptr()).is_none() {
-                #[cfg(not(debug_assertions))]
-                panic!("other is already taken.");
-                #[cfg(debug_assertions)]
-                panic!(
-                    "other is already taken or created with `late`.\n{}",
-                    other.last_modified_msg()
-                );
-            }
+        if self.is_taken.get() {
+            #[cfg(not(debug_assertions))]
+            panic!("self is already taken or created with `late`.");
+            #[cfg(debug_assertions)]
+            panic!(
+                "self is already taken or created with `late`.\n{}",
+                self.last_modified_msg()
+            );
+        }
+        if other.is_taken.get() {
+            #[cfg(not(debug_assertions))]
+            panic!("other is already taken.");
+            #[cfg(debug_assertions)]
+            panic!(
+                "other is already taken or created with `late`.\n{}",
+                other.last_modified_msg()
+            );
         }
         self.cell.swap(&other.cell);
         #[cfg(debug_assertions)]
@@ -338,18 +343,7 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn into_inner(self) -> T {
-        let val = self.cell.replace(None);
-        if let Some(val) = val {
-            val
-        } else {
-            #[cfg(not(debug_assertions))]
-            panic!("self is empty, cannot extract inner value.");
-            #[cfg(debug_assertions)]
-            panic!(
-                "self is empty, cannot extract inner value.\n{}",
-                self.last_modified_msg()
-            );
-        }
+        self.take()
     }
 
     #[cfg(debug_assertions)]
@@ -364,15 +358,33 @@ impl<T> SlotCell<T> {
     }
 }
 
+impl<T> Drop for SlotCell<T> {
+    fn drop(&mut self) {
+        if self.is_taken.get() {
+            return;
+        }
+        // let _ = self.take_unchecked();
+        // Safety: This cell is the only owner of this cell and no data could have been borrowed from it.
+        unsafe {
+            (*self.cell.as_ptr()).assume_init_drop();
+        }
+    }
+}
+
 impl<T> Debug for SlotCell<T>
 where
     T: Debug,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut binding = f.debug_struct("SlotCell");
-        let val = self.cell.replace(None);
-        let r = binding.field("cell", &val);
-        self.cell.replace(val);
+        let r = if self.is_taken.get() {
+            binding.field("cell", &"TAKEN")
+        } else {
+            let val = self.take_raw();
+            let r = binding.field("cell", &val);
+            self.put_raw(val);
+            r
+        };
         #[cfg(debug_assertions)]
         let r = r.field("last_modified", &self.last_modified);
         r.finish()
@@ -389,11 +401,19 @@ where
         if std::ptr::eq(self, other) {
             return true;
         }
-        let val_a = self.cell.replace(None);
-        let val_b = other.cell.replace(None);
+        let self_is_taken = self.is_taken.get();
+        let other_is_taken = other.is_taken.get();
+        if self_is_taken && other_is_taken {
+            return true;
+        }
+        if self_is_taken || other_is_taken {
+            return false;
+        }
+        let val_a = self.take_raw();
+        let val_b = other.take_raw();
         let eq = val_a == val_b;
-        self.cell.replace(val_a);
-        other.cell.replace(val_b);
+        self.put_raw(val_a);
+        other.put_raw(val_b);
         eq
     }
 }
@@ -406,11 +426,22 @@ where
         if std::ptr::eq(self, other) {
             return std::cmp::Ordering::Equal;
         }
-        let val_a = self.cell.replace(None);
-        let val_b = other.cell.replace(None);
+        let self_is_taken = self.is_taken.get();
+        let other_is_taken = other.is_taken.get();
+        if self_is_taken && other_is_taken {
+            return std::cmp::Ordering::Equal;
+        }
+        if self_is_taken {
+            return std::cmp::Ordering::Less;
+        }
+        if other_is_taken {
+            return std::cmp::Ordering::Greater;
+        }
+        let val_a = self.take_raw();
+        let val_b = other.take_raw();
         let ord = val_a.cmp(&val_b);
-        self.cell.replace(val_a);
-        other.cell.replace(val_b);
+        self.put_raw(val_a);
+        other.put_raw(val_b);
         ord
     }
 }
@@ -423,11 +454,22 @@ where
         if std::ptr::eq(self, other) {
             return Some(std::cmp::Ordering::Equal);
         }
-        let val_a = self.cell.replace(None);
-        let val_b = other.cell.replace(None);
+        let self_is_taken = self.is_taken.get();
+        let other_is_taken = other.is_taken.get();
+        if self_is_taken && other_is_taken {
+            return Some(std::cmp::Ordering::Equal);
+        }
+        if self_is_taken {
+            return Some(std::cmp::Ordering::Less);
+        }
+        if other_is_taken {
+            return Some(std::cmp::Ordering::Greater);
+        }
+        let val_a = self.take_raw();
+        let val_b = other.take_raw();
         let ord = val_a.partial_cmp(&val_b);
-        self.cell.replace(val_a);
-        other.cell.replace(val_b);
+        self.put_raw(val_a);
+        other.put_raw(val_b);
         ord
     }
 }
@@ -437,9 +479,13 @@ where
     T: std::hash::Hash,
 {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let val = self.cell.replace(None);
-        val.hash(state);
-        self.cell.replace(val);
+        if self.is_taken.get() {
+            0usize.hash(state);
+        } else {
+            let val = self.take_raw();
+            val.hash(state);
+            self.put_raw(val);
+        }
     }
 }
 
@@ -448,24 +494,25 @@ impl<T> Default for SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     fn default() -> Self {
         Self {
-            cell: Cell::new(None),
+            is_taken: Cell::new(true),
+            cell: Cell::new(MaybeUninit::uninit()),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
         }
     }
 }
 
-impl<T> From<Cell<Option<T>>> for SlotCell<T> {
-    #[inline]
-    #[cfg_attr(debug_assertions, track_caller)]
-    fn from(value: Cell<Option<T>>) -> Self {
-        Self {
-            cell: value,
-            #[cfg(debug_assertions)]
-            last_modified: Cell::new(Location::caller().clone()),
-        }
-    }
-}
+// impl<T> From<Cell<Option<T>>> for SlotCell<T> {
+//     #[inline]
+//     #[cfg_attr(debug_assertions, track_caller)]
+//     fn from(value: Cell<Option<T>>) -> Self {
+//         Self {
+//             cell: value,
+//             #[cfg(debug_assertions)]
+//             last_modified: Cell::new(Location::caller().clone()),
+//         }
+//     }
+// }
 
 // /// We only do this drop check in debug mode since not checking will **not** cause `UB`.
 // /// But semantically a user should always return the value when taken before the cell is dropped.
@@ -611,7 +658,9 @@ mod tests {
 
             assert!(
                 refcell_size > slotcell_size,
-                "RefCell<T> should be larger than SlotCell<T> in release mode. Got {} and {}", refcell_size, slotcell_size
+                "RefCell<T> should be larger than SlotCell<T> in release mode. Got {} and {}",
+                refcell_size,
+                slotcell_size
             );
         }
     }
