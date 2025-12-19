@@ -1,6 +1,6 @@
 # SlotCell
 
-`SlotCell<T>` is an interior mutability container for Rust that enforces **take-put** semantics. It acts as a "lockless mutex" for single-threaded scenarios, providing a alternative to `RefCell` when you need **owned access** to data rather than references.
+`SlotCell<T>` is an interior mutability container for Rust that enforces **take-put** semantics. It acts as a "Single-Threaded Mutex", providing a alternative to `RefCell` when you need **owned access** to data rather than references.
 
 ---
 
