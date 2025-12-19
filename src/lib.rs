@@ -7,14 +7,14 @@ use std::fmt::Debug;
 /// `SlotCell<T>` wraps a value that can be temporarily "taken out" and later "put back".
 /// This is useful for scenarios where you need to move a value out of a structure temporarily,
 /// perform operations on it, and then return it. In practice `SlotCell` fills the same role as
-/// `RefCell`, while being more efficient and allows access to owned values.
+/// `RefCell` and acts more like a "lockless mutex", while being more efficient and allows access to owned values.
 ///
 /// Unlike `Cell<T>` or `Cell<Option<T>>`:
 /// - `T` does not need to implement `Copy`/`Clone`/`Default`, or a separate `T` needed, to take
 /// the value out.
 /// - Implements `Debug`, `PartialEq`, `Eq`, `PartialOrd`, `Ord`, `Hash`, and `Default` if `T` does.
 /// - Does not implement `Clone` or `Copy`, or require `T` to be `Clone` or `Copy` for certain operations.
-/// - Enforces a correct usage patterns that mimics "borrow semantic" with a runtime check.
+/// - Enforces a correct usage patterns that mimics "borrow semantics" with a runtime check.
 /// 
 /// Unlike `RefCell<T>`:
 /// - No borrow counting is used
@@ -25,8 +25,6 @@ use std::fmt::Debug;
 /// it is up to the programmer to follow semantics around taking and returning values 
 /// or it will panic otherwise.
 /// - A value can only be taken once (until put back)
-/// - A value *should* be put back before dropping and will panic otherwise
-/// (Calling `into_inner` or `mem::forget` is safe way to remove this behavior).
 /// - A value can only be put back when the slot is empty
 /// - A value can only be replaced when not already taken
 ///
@@ -131,11 +129,11 @@ impl<T> SlotCell<T> {
     pub fn take(&self) -> T {
         #[cfg(not(debug_assertions))]
         let val = self.cell.replace(None).expect(
-            "The value had already been taken and never put back, or was create with `late`.",
+            "The value has already been taken and never put back, or was create with `late`.",
         );
         #[cfg(debug_assertions)]
         let val = self.cell.replace(None).unwrap_or_else(|| {
-            panic!("The value had already been taken and never put back, or was create with `late`\n{}", self.last_modified_msg())
+            panic!("The value has already been taken and never put back, or was create with `late`\n{}", self.last_modified_msg())
         });
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
@@ -333,13 +331,17 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn into_inner(self) -> T {
         let val = self.cell.replace(None);
-        let val = if let Some(val) = val {
+        if let Some(val) = val {
             val
         } else {
+            #[cfg(not(debug_assertions))]
             panic!("self is empty, cannot extract inner value.");
-        };
-        mem::forget(self);
-        return val;
+            #[cfg(debug_assertions)]
+            panic!(
+                "self is empty, cannot extract inner value.\n{}",
+                self.last_modified_msg()
+            );
+        }
     }
 
     #[cfg(debug_assertions)]
@@ -457,15 +459,117 @@ impl<T> From<Cell<Option<T>>> for SlotCell<T> {
     }
 }
 
-/// We only do this drop check in debug mode since not checking will **not** cause `UB`.
-/// But semantically a user should always return the value when taken before the cell is dropped.
-/// If this panic is hit, it will likely inform the user of a logical inconsistency bug.
-/// Failing early to more easily detect the bug.
-#[cfg(debug_assertions)]
-impl<T> Drop for SlotCell<T> {
-    fn drop(&mut self) {
-        if self.is_taken() {
-            panic!("SlotCell was dropped while still taken. Value was never put back.\n{}", self.last_modified_msg());
-        }
+// /// We only do this drop check in debug mode since not checking will **not** cause `UB`.
+// /// But semantically a user should always return the value when taken before the cell is dropped.
+// /// If this panic is hit, it will likely inform the user of a logical inconsistency bug.
+// /// Failing early to more easily detect the bug.
+// #[cfg(debug_assertions)]
+// impl<T> Drop for SlotCell<T> {
+//     fn drop(&mut self) {
+//         if self.is_taken() {
+//             panic!("SlotCell was dropped while still taken. Value was never put back.\n{}", self.last_modified_msg());
+//         }
+//     }
+// }
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_new_and_take() {
+        let cell = SlotCell::new(10);
+        assert!(!cell.is_taken());
+        assert_eq!(cell.take(), 10);
+        assert!(cell.is_taken());
+    }
+
+    #[test]
+    fn test_late_and_put() {
+        let cell: SlotCell<i32> = SlotCell::late();
+        assert!(cell.is_taken());
+        cell.put(20);
+        assert!(!cell.is_taken());
+        assert_eq!(cell.take(), 20);
+    }
+
+    #[test]
+    fn test_replace() {
+        let cell = SlotCell::new(1);
+        let old = cell.replace(2);
+        assert_eq!(old, 1);
+        assert_eq!(cell.take(), 2);
+    }
+
+    #[test]
+    fn test_swap() {
+        let a = SlotCell::new(1);
+        let b = SlotCell::new(2);
+        a.swap(&b);
+        assert_eq!(a.take(), 2);
+        assert_eq!(b.take(), 1);
+    }
+
+    #[test]
+    fn test_into_inner() {
+        let cell = SlotCell::new(String::from("hello"));
+        let s = cell.into_inner();
+        assert_eq!(s, "hello");
+    }
+
+    // --- Panic Tests ---
+
+    #[test]
+    #[should_panic]
+    fn test_panic_take_empty() {
+        let cell = SlotCell::new(5);
+        let _ = cell.take();
+        let _ = cell.take(); // Should panic
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panic_put_full() {
+        let cell = SlotCell::new(5);
+        cell.put(10);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_panic_replace_empty() {
+        let cell: SlotCell<i32> = SlotCell::late();
+        cell.replace(10);
+    }
+
+    // --- Trait Tests ---
+
+    #[test]
+    fn test_equality() {
+        let a = SlotCell::new(5);
+        let b = SlotCell::new(5);
+        let c = SlotCell::new(6);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+        
+        // Test equality with empty slots (they are equal)
+        let _ = a.take();
+        let _ = b.take();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_ordering() {
+        let a = SlotCell::new(10);
+        let b = SlotCell::new(20);
+        assert!(a < b);
+    }
+
+    #[test]
+    fn test_debug_format() {
+        let cell = SlotCell::new(42);
+        let debug_str = format!("{:?}", cell);
+        assert!(debug_str.contains("SlotCell"));
+        assert!(debug_str.contains("42"));
     }
 }
