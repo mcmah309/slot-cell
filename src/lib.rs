@@ -1,3 +1,6 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+#![doc = include_str!("../README.md")]
+
 use core::cell::Cell;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
