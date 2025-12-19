@@ -150,16 +150,17 @@ impl<T> SlotCell<T> {
                 self.last_modified_msg()
             )
         }
-        let val = self.take_raw();
-        self.is_taken.set(true);
+        let val = self.take_unchecked();
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
         val
     }
 
     #[inline(always)]
-    fn take_raw(&self) -> T {
+    fn take_unchecked(&self) -> T {
+        debug_assert!(!self.is_taken.get());
         let val = self.cell.replace(MaybeUninit::uninit());
+        self.is_taken.set(true);
         unsafe { val.assume_init() }
     }
 
@@ -220,15 +221,16 @@ impl<T> SlotCell<T> {
                 self.last_modified_msg()
             );
         }
-        self.put_raw(val);
-        self.is_taken.set(false);
+        self.put_unchecked(val);
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
     }
 
     #[inline(always)]
-    fn put_raw(&self, val: T) {
+    fn put_unchecked(&self, val: T) {
+        debug_assert!(self.is_taken.get());
         let _ = self.cell.replace(MaybeUninit::new(val));
+        self.is_taken.set(false);
     }
 
     /// Replaces the current value in the cell with a new one.
@@ -363,11 +365,7 @@ impl<T> Drop for SlotCell<T> {
         if self.is_taken.get() {
             return;
         }
-        // let _ = self.take_unchecked();
-        // Safety: This cell is the only owner of this cell and no data could have been borrowed from it.
-        unsafe {
-            (*self.cell.as_ptr()).assume_init_drop();
-        }
+        let _ = self.take_unchecked();
     }
 }
 
@@ -380,9 +378,9 @@ where
         let r = if self.is_taken.get() {
             binding.field("cell", &"TAKEN")
         } else {
-            let val = self.take_raw();
+            let val = self.take_unchecked();
             let r = binding.field("cell", &val);
-            self.put_raw(val);
+            self.put_unchecked(val);
             r
         };
         #[cfg(debug_assertions)]
@@ -409,11 +407,11 @@ where
         if self_is_taken || other_is_taken {
             return false;
         }
-        let val_a = self.take_raw();
-        let val_b = other.take_raw();
+        let val_a = self.take_unchecked();
+        let val_b = other.take_unchecked();
         let eq = val_a == val_b;
-        self.put_raw(val_a);
-        other.put_raw(val_b);
+        self.put_unchecked(val_a);
+        other.put_unchecked(val_b);
         eq
     }
 }
@@ -437,11 +435,11 @@ where
         if other_is_taken {
             return std::cmp::Ordering::Greater;
         }
-        let val_a = self.take_raw();
-        let val_b = other.take_raw();
+        let val_a = self.take_unchecked();
+        let val_b = other.take_unchecked();
         let ord = val_a.cmp(&val_b);
-        self.put_raw(val_a);
-        other.put_raw(val_b);
+        self.put_unchecked(val_a);
+        other.put_unchecked(val_b);
         ord
     }
 }
@@ -465,11 +463,11 @@ where
         if other_is_taken {
             return Some(std::cmp::Ordering::Greater);
         }
-        let val_a = self.take_raw();
-        let val_b = other.take_raw();
+        let val_a = self.take_unchecked();
+        let val_b = other.take_unchecked();
         let ord = val_a.partial_cmp(&val_b);
-        self.put_raw(val_a);
-        other.put_raw(val_b);
+        self.put_unchecked(val_a);
+        other.put_unchecked(val_b);
         ord
     }
 }
@@ -482,9 +480,9 @@ where
         if self.is_taken.get() {
             0usize.hash(state);
         } else {
-            let val = self.take_raw();
+            let val = self.take_unchecked();
             val.hash(state);
-            self.put_raw(val);
+            self.put_unchecked(val);
         }
     }
 }
@@ -502,17 +500,39 @@ impl<T> Default for SlotCell<T> {
     }
 }
 
-// impl<T> From<Cell<Option<T>>> for SlotCell<T> {
-//     #[inline]
-//     #[cfg_attr(debug_assertions, track_caller)]
-//     fn from(value: Cell<Option<T>>) -> Self {
-//         Self {
-//             cell: value,
-//             #[cfg(debug_assertions)]
-//             last_modified: Cell::new(Location::caller().clone()),
-//         }
-//     }
-// }
+impl<T> From<T> for SlotCell<T> {
+    #[inline]
+    #[cfg_attr(debug_assertions, track_caller)]
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<T> From<Option<T>> for SlotCell<T> {
+    #[cfg_attr(debug_assertions, track_caller)]
+    fn from(value: Option<T>) -> Self {
+        let (is_taken, cell) = match value {
+            Some(value) => (false, MaybeUninit::new(value)),
+            None => (true, MaybeUninit::uninit()),
+        };
+        Self {
+            is_taken: Cell::new(is_taken),
+            cell: Cell::new(cell),
+            #[cfg(debug_assertions)]
+            last_modified: Cell::new(Location::caller().clone()),
+        }
+    }
+}
+
+impl<T> From<SlotCell<T>> for Option<T> {
+    fn from(value: SlotCell<T>) -> Self {
+        if value.is_taken() {
+            None
+        } else {
+            Some(value.into_inner())
+        }
+    }
+}
 
 // /// We only do this drop check in debug mode since not checking will **not** cause `UB`.
 // /// But semantically a user should always return the value when taken before the cell is dropped.
