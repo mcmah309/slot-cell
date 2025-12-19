@@ -1,13 +1,13 @@
 # SlotCell
 
-`SlotCell<T>` is a high-performance interior mutability container for Rust that enforces **take-put** semantics. It acts as a "lockless mutex" for single-threaded scenarios, providing a alternative to `RefCell` when you need **owned access** to data rather than references.
+`SlotCell<T>` is an interior mutability container for Rust that enforces **take-put** semantics. It acts as a "lockless mutex" for single-threaded scenarios, providing a alternative to `RefCell` when you need **owned access** to data rather than references.
 
 ---
 
 ## Key Features
 
 * **Owned Access:** Unlike `RefCell`, which gives you a `RefMut` guard, `SlotCell` allows you to move the value out of the container entirely.
-* **Memory Efficient:** In release builds, `SlotCell<T>` is exactly the same size as `Cell<Option<T>>`. It avoids the overhead of runtime borrow counters used by `RefCell`.
+* **Memory Efficient:** Depending on the alignment of `T`, it may be smaller than `RefCell`.
 * **No Constraints on `T`:** Unlike `Cell<T>`, your type `T` does not need to implement `Copy`, `Clone`, or `Default`.
 * **Debug Tracking:** In debug builds, `SlotCell` tracks the file and line number of the last modification. If you try to take a value that is already gone, it tells you exactly where it was taken.
 
