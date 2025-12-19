@@ -6,3 +6,10 @@ description = "A cell"
 license = "Apache-2.0"
 
 [dependencies]
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "cell_bench"
+harness = false
