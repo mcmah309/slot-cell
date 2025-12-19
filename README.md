@@ -33,16 +33,16 @@ use slot_cell::SlotCell;
 
 // Create a cell
 let cell = SlotCell::new(String::from("Hello"));
+let cell_ref: &SlotCell<String> = &cell;
 
 // Take the value (cell is now empty)
-let mut s = cell.take();
+let mut s: String = cell_ref.take();
 s.push_str(" World");
 
 // Put it back
-cell.put(s);
+cell_ref.put(s);
 
 assert_eq!(cell.take(), "Hello World");
-
 ```
 
 ### Late Initialization
@@ -50,13 +50,13 @@ assert_eq!(cell.take(), "Hello World");
 Useful for types that cannot be initialized until after the parent struct is created.
 
 ```rust
-let cell = SlotCell::late();
+use slot_cell::SlotCell;
+
+let cell = SlotCell::empty();
 
 // ... later ...
 cell.put(42);
-
 ```
-
 ---
 
 ## Performance Considerations
