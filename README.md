@@ -52,8 +52,6 @@ assert_eq!(cell.take(), "Hello World");
 
 ### Late Initialization
 
-Useful for types that cannot be initialized until after the parent struct is created.
-
 ```rust
 use slot_cell::SlotCell;
 
