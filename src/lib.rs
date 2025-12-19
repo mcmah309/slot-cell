@@ -382,7 +382,7 @@ where
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut binding = f.debug_struct("SlotCell");
         let r = if self.is_empty.get() {
-            binding.field("cell", &"TAKEN")
+            binding.field("cell", &"EMPTY")
         } else {
             let val = self.take_unchecked();
             let r = binding.field("cell", &val);
