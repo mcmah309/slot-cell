@@ -5,7 +5,7 @@
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-slot_cell-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/slot-cell)
 [<img alt="test status" src="https://img.shields.io/github/actions/workflow/status/mcmah309/slot-cell/rust.yml?branch=main&style=for-the-badge" height="20">](https://github.com/mcmah309/slot-cell/actions?query=branch%3Amain)
 
-`SlotCell<T>` is an interior mutability container for Rust that enforces **take-put** semantics. It acts as a "Single-Threaded Mutex", providing a alternative to `RefCell` when you need **owned access** to data rather than references.
+`SlotCell<T>` is an interior mutability container that enforces **take-put** semantics. It acts as a "Single-Threaded Mutex", providing a alternative to `RefCell` when you need **owned access** to data rather than references.
 
 ---
 

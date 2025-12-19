@@ -2,8 +2,9 @@
 name = "slot-cell"
 version = "0.0.1"
 edition = "2024"
-description = "A cell"
+description = "SlotCell - an interior mutability container. It acts as a \"Single-Threaded Mutex\", providing owned access to data rather than references."
 license = "Apache-2.0"
+repository = "https://github.com/mcmah309/slot-cell"
 
 [dependencies]
 
