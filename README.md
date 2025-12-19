@@ -5,7 +5,7 @@
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-slot_cell-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/slot-cell)
 [<img alt="test status" src="https://img.shields.io/github/actions/workflow/status/mcmah309/slot-cell/rust.yml?branch=main&style=for-the-badge" height="20">](https://github.com/mcmah309/slot-cell/actions?query=branch%3Amain)
 
-`SlotCell<T>` is an interior mutability container that enforces **take-put** semantics. It acts as a "Single-Threaded Mutex", providing a alternative to `RefCell` when you need **owned access** to data rather than references.
+`SlotCell<T>` is an interior mutability container that enforces **take-put** semantics. It acts as a "Single-Threaded Mutex", providing a alternative to `RefCell` when you need **owned access** to data rather than references, or an alternative to `Cell` when `T` does not implement the required bounds (`Clone`/`Copy`/`Default`) or take/put correctness is important.
 
 ---
 
@@ -66,12 +66,12 @@ cell.put(42);
 
 ## Performance Considerations
 
-`SlotCell` is optimized for stack-allocated values. Because `take()` and `put()` move the data:
+`SlotCell` is optimized for small stack-allocated values. Because `take()` and `put()` move the data:
 
 * **Fast:** For types  bytes (like `i32`, `String`, `Vec`).
-* **Slower:** For very large structs (e.g.,  arrays), where the cost of moving data exceeds the cost of `RefCell`'s borrow counting. For large types, consider wrapping them in a `Box` before putting them in a `SlotCell`.
+* **Slower:** For very large structs (e.g.,  arrays), where the cost of moving data exceeds the cost of `RefCell`'s reference management. For large types, consider wrapping them in a `Box` before putting them in a `SlotCell`.
 
-### Benchmarks at a Glance
+### Benchmarks
 
 Measured on a standard Criterion suite comparing `SlotCell<T>::take/put` vs `RefCell<T>::borrow_mut`.
 
@@ -80,8 +80,8 @@ Measured on a standard Criterion suite comparing `SlotCell<T>::take/put` vs `Ref
 | **-** | Access Overhead | 1.31 ns | 586.05 ps | ~55% Faster |
 | **i32** | Primitive Update | 1.49 ns | 640.77 ps | ~57% Faster |
 | **String** | Push Char | 1.34 ns | 5.79 ns | ~4.3x Slower |
-| **Large Struct (~1KB)** | Update Fields | 2.24 ns | 132.61 ns | ~59x Slower |
-| **Box<Large Struct>** | Heap Update | 2.24 ns | 2.23 ns | ~0.4% Faster |
+| **Large Struct (~1KB)** | Stack Only | 2.24 ns | 132.61 ns | ~59x Slower |
+| **Box<Large Struct>** | Heap | 2.24 ns | 2.23 ns | ~0.4% Faster |
 
 
 ---
