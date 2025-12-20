@@ -144,9 +144,7 @@ impl<T> SlotCell<T> {
     pub fn take(&self) -> T {
         if self.is_empty.get() {
             #[cfg(not(debug_assertions))]
-            panic!(
-                "Attempted to `take` a value when the slot is already empty."
-            );
+            panic!("Attempted to `take` a value when the slot is already empty.");
             #[cfg(debug_assertions)]
             panic!(
                 "Attempted to `take` a value when the slot is already empty.\n{}",
@@ -494,10 +492,18 @@ where
     T: PartialEq,
 {
     fn eq(&self, other: &Self) -> bool {
-        if std::ptr::eq(self, other) {
-            return true;
-        }
         let self_is_empty = self.is_empty.get();
+        if std::ptr::eq(self, other) {
+            // Some types may not always be equal to themselves so we must check instead of just
+            // returning `true` (e.g. NaN != NaN)
+            if self_is_empty {
+                return true;
+            }
+            let val = self.take_unchecked();
+            let eq = val == val;
+            self.put_unchecked(val);
+            return eq;
+        }
         let other_is_empty = other.is_empty.get();
         if self_is_empty && other_is_empty {
             return true;
@@ -519,10 +525,12 @@ where
     T: Ord,
 {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        let self_is_empty = self.is_empty.get();
         if std::ptr::eq(self, other) {
+            // We do not need to check the inner, since unlike `PartialOrd`, `Ord` implies Total Order.
+            // One of the mathematical requirements for Total Order is **Reflexivity**.
             return std::cmp::Ordering::Equal;
         }
-        let self_is_empty = self.is_empty.get();
         let other_is_empty = other.is_empty.get();
         if self_is_empty && other_is_empty {
             return std::cmp::Ordering::Equal;
@@ -547,10 +555,18 @@ where
     T: PartialOrd,
 {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if std::ptr::eq(self, other) {
-            return Some(std::cmp::Ordering::Equal);
-        }
         let self_is_empty = self.is_empty.get();
+        if std::ptr::eq(self, other) {
+            // Some types may not always be ordered to themselves so we must check instead of just
+            // returning `Equal`
+            if self_is_empty {
+                return Some(std::cmp::Ordering::Equal);
+            }
+            let val = self.take_unchecked();
+            let ord = val.partial_cmp(&val);
+            self.put_unchecked(val);
+            return ord;
+        }
         let other_is_empty = other.is_empty.get();
         if self_is_empty && other_is_empty {
             return Some(std::cmp::Ordering::Equal);
