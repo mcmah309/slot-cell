@@ -18,7 +18,15 @@ jobs:
       run: cargo build --verbose
     - name: Run tests
       run: cargo test --verbose
-
+  no-std:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7m-none-eabi
+      - name: Check no_std
+        run: cargo check --target thumbv7m-none-eabi --no-default-features
   miri:
     name: Miri
     runs-on: ubuntu-latest
