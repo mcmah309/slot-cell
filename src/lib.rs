@@ -7,7 +7,7 @@ use core::cell::UnsafeCell;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
 use core::panic::Location;
-use core::{mem, ptr};
+use core::ptr;
 
 macro_rules! slot_panic {
     ($self:ident, $msg:expr) => {
@@ -302,13 +302,7 @@ impl<T> SlotCell<T> {
                 "Attempted to `replace` a value when the slot is already empty."
             );
         }
-        let val = unsafe {
-            mem::replace(
-                self.cell.get().as_mut().unwrap_unchecked(),
-                MaybeUninit::new(val),
-            )
-            .assume_init()
-        };
+        let val = unsafe { ptr::replace(self.cell.get(), MaybeUninit::new(val)).assume_init() };
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
         val
@@ -357,10 +351,7 @@ impl<T> SlotCell<T> {
             );
         }
         unsafe {
-            mem::swap(
-                self.cell.get().as_mut().unwrap_unchecked(),
-                other.cell.get().as_mut().unwrap_unchecked(),
-            );
+            ptr::swap(self.cell.get(), other.cell.get());
         }
         #[cfg(debug_assertions)]
         {
@@ -495,11 +486,7 @@ impl<T> Drop for SlotCell<T> {
         }
         self.is_empty.set(true);
         unsafe {
-            self.cell
-                .get()
-                .as_mut()
-                .unwrap_unchecked()
-                .assume_init_drop();
+            (*self.cell.get()).assume_init_drop();
         }
     }
 }
