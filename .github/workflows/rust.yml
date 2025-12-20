@@ -31,4 +31,5 @@ jobs:
           components: miri
           
       - name: Run Miri
-        run: cargo miri test
+        # We explictly create leaks in our test to test if there is any issues with cycles
+        run: MIRIFLAGS=-Zmiri-ignore-leaks cargo miri test
