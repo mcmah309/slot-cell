@@ -2,9 +2,11 @@
 name = "slot-cell"
 version = "0.1.1"
 edition = "2024"
-description = "SlotCell - an interior mutability container. It acts as a \"Single-Threaded Mutex\", providing owned access to data rather than references."
+description = "SlotCell - an interior mutability container. It acts as a \"Runtime-Checked Move Cell\", providing owned access to data rather than references."
 license = "Apache-2.0"
 repository = "https://github.com/mcmah309/slot-cell"
+keywords = ["cell", "no_std" ]
+categories = ["rust-patterns", "data structures", "no standard library", "no dynamic allocation"]
 
 [dependencies]
 

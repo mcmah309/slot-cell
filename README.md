@@ -5,7 +5,7 @@
 [<img alt="docs.rs" src="https://img.shields.io/badge/docs.rs-slot_cell-66c2a5?style=for-the-badge&labelColor=555555&logo=docs.rs" height="20">](https://docs.rs/slot-cell)
 [<img alt="test status" src="https://img.shields.io/github/actions/workflow/status/mcmah309/slot-cell/rust.yml?branch=main&style=for-the-badge" height="20">](https://github.com/mcmah309/slot-cell/actions?query=branch%3Amain)
 
-`SlotCell<T>` is an interior mutability container that enforces **take-put** semantics. It acts as a "Single-Threaded Mutex", providing a alternative to `RefCell` when you need **owned access** to data rather than references, or an alternative to `Cell` when `T` does not implement the required bounds (`Clone`/`Copy`/`Default`) or take/put correctness is important.
+`SlotCell<T>` provides move-based interior mutability. It acts as a "Runtime-Checked Move Cell", providing a alternative to `RefCell` when you need **owned access** to data rather than references. It is particularly useful for types that don't implement `Copy` or `Default`, where a standard `Cell` would be unusable.
 
 ---
 
@@ -22,9 +22,9 @@
 
 | Feature | `SlotCell<T>` | `RefCell<T>` |
 | --- | --- | --- |
-| **Access Pattern** | Take ownership (`T`) | Borrow reference (`&T` / `&mut T`) |
-| **Overhead** | Minimal (discriminant) | Borrow counter |
-| **Safety Check** | Runtime check - "is empty" | Runtime check - "is borrowed" |
+| **Access Pattern** | Move (Ownership) | Borrow reference (`&T` / `&mut T`) |
+| **Overhead** | Occupancy Check (Full/Empty) | Borrow Check (Read/Write) |
+| **Ergonomics** |	No lifetime/guard |	Uses `Ref`/`RefMut` guards |
 | **Best For** | Small/Medium stack types | Large stack types, multiple reads |
 
 ---
