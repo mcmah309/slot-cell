@@ -142,7 +142,7 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn take(&self) -> T {
-        if self.is_empty.get() {
+        if self.is_empty.replace(true) {
             #[cfg(not(debug_assertions))]
             panic!("Attempted to `take` a value when the slot is already empty.");
             #[cfg(debug_assertions)]
@@ -151,9 +151,10 @@ impl<T> SlotCell<T> {
                 self.last_modified_msg()
             )
         }
-        let val = self.take_unchecked();
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
+        let val = self.cell.replace(MaybeUninit::uninit());
+        let val = unsafe { val.assume_init() };
         val
     }
 
@@ -161,8 +162,8 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     fn take_unchecked(&self) -> T {
         debug_assert!(!self.is_empty.get());
-        let val = self.cell.replace(MaybeUninit::uninit());
         self.is_empty.set(true);
+        let val = self.cell.replace(MaybeUninit::uninit());
         unsafe { val.assume_init() }
     }
 
@@ -214,7 +215,7 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn put(&self, val: T) {
-        if !self.is_empty.get() {
+        if !self.is_empty.replace(false) {
             #[cfg(not(debug_assertions))]
             panic!("Attempted to `put` a value when the slot is already filled.");
             #[cfg(debug_assertions)]
@@ -223,9 +224,9 @@ impl<T> SlotCell<T> {
                 self.last_modified_msg()
             );
         }
-        self.put_unchecked(val);
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
+        let _ = self.cell.replace(MaybeUninit::new(val));
     }
 
     #[inline(always)]
@@ -456,12 +457,15 @@ impl<T> SlotCell<T> {
 }
 
 impl<T> Drop for SlotCell<T> {
+    #[inline]
     fn drop(&mut self) {
-        if self.is_empty.get() {
+        if self.is_empty.replace(true) {
             return;
         }
-        // Allow drop code to run
-        let _ = self.take_unchecked();
+        // Allow drop code to run without a move
+        unsafe {
+            (*self.cell.as_ptr()).assume_init_drop();
+        }
     }
 }
 
