@@ -7,6 +7,8 @@
 
 `SlotCell<T>` provides move-based interior mutability. It acts as a "Runtime-Checked Move Cell", providing a alternative to `RefCell` when you need **owned access** to data rather than references. It is particularly useful for types that don't implement `Copy` or `Default`, where a standard `Cell` would be unusable.
 
+Supports `no_std`.
+
 ---
 
 ## Key Features
