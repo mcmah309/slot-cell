@@ -166,7 +166,10 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn take(&self) -> T {
         if self.is_empty.get() {
-            slot_panic!(self, "Attempted to `take` a value when the slot is already empty.");
+            slot_panic!(
+                self,
+                "Attempted to `take` a value when the slot is already empty."
+            );
         }
         let val = self.take_unchecked();
         #[cfg(debug_assertions)]
@@ -248,7 +251,10 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn put(&self, val: T) {
         if !self.is_empty.get() {
-            slot_panic!(self, "Attempted to `put` a value when the slot is already filled.");
+            slot_panic!(
+                self,
+                "Attempted to `put` a value when the slot is already filled."
+            );
         }
         self.put_unchecked(val);
         #[cfg(debug_assertions)]
@@ -291,7 +297,10 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn replace(&self, val: T) -> T {
         if self.is_empty.get() {
-            slot_panic!(self, "Attempted to `replace` a value when the slot is already empty.");
+            slot_panic!(
+                self,
+                "Attempted to `replace` a value when the slot is already empty."
+            );
         }
         let val = unsafe {
             mem::replace(
@@ -333,10 +342,16 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn swap(&self, other: &Self) {
         if self.is_empty.get() {
-            slot_panic!(self, "Attempted to `swap` a value when this slot is already empty.");
+            slot_panic!(
+                self,
+                "Attempted to `swap` a value when this slot is already empty."
+            );
         }
         if other.is_empty.get() {
-            slot_panic!(self, "Attempted to `swap` a value when the other slot is already empty.");
+            slot_panic!(
+                self,
+                "Attempted to `swap` a value when the other slot is already empty."
+            );
         }
         unsafe {
             mem::swap(
@@ -345,7 +360,11 @@ impl<T> SlotCell<T> {
             );
         }
         #[cfg(debug_assertions)]
-        self.last_modified.set(Location::caller().clone());
+        {
+            let location = Location::caller().clone();
+            self.last_modified.set(location.clone());
+            other.last_modified.set(location);
+        }
     }
 
     /// Executes a closure with a mutable reference to the value inside the cell.
