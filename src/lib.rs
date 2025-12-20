@@ -29,6 +29,16 @@ macro_rules! slot_panic {
     };
 }
 
+#[allow(dead_code)]
+fn assert_send<T: Send>() {}
+#[allow(dead_code)]
+fn assert_sync<T: Sync>() {}
+#[allow(dead_code)]
+fn check_traits() {
+    assert_send::<SlotCell<i32>>();
+    // assert_sync::<SlotCell<i32>>(); // Will not compile
+}
+
 /// A cell type that enforces borrowing semantics (take/put) for interior mutability.
 ///
 /// `SlotCell<T>` wraps a value that can be temporarily "taken out" and later "put back".
