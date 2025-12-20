@@ -1,12 +1,33 @@
+#![cfg_attr(not(test), no_std)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![doc = include_str!("../README.md")]
 
 use core::cell::Cell;
+use core::cell::UnsafeCell;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
 use core::panic::Location;
-use std::cell::UnsafeCell;
-use std::{mem, ptr};
+use core::{mem, ptr};
+
+macro_rules! slot_panic {
+    ($self:ident, $msg:expr) => {
+        #[cfg(not(debug_assertions))]
+        {
+            panic!($msg);
+        }
+        #[cfg(debug_assertions)]
+        {
+            let loc = $self.last_modified.get();
+            panic!(
+                "{}\nLast modified at {}:{}:{}",
+                $msg,
+                loc.file(),
+                loc.line(),
+                loc.column()
+            );
+        }
+    };
+}
 
 /// A cell type that enforces borrowing semantics (take/put) for interior mutability.
 ///
@@ -145,13 +166,7 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn take(&self) -> T {
         if self.is_empty.get() {
-            #[cfg(not(debug_assertions))]
-            panic!("Attempted to `take` a value when the slot is already empty.");
-            #[cfg(debug_assertions)]
-            panic!(
-                "Attempted to `take` a value when the slot is already empty.\n{}",
-                self.last_modified_msg()
-            )
+            slot_panic!(self, "Attempted to `take` a value when the slot is already empty.");
         }
         let val = self.take_unchecked();
         #[cfg(debug_assertions)]
@@ -233,13 +248,7 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn put(&self, val: T) {
         if !self.is_empty.get() {
-            #[cfg(not(debug_assertions))]
-            panic!("Attempted to `put` a value when the slot is already filled.");
-            #[cfg(debug_assertions)]
-            panic!(
-                "Attempted to `put` a value when the slot is already filled.\n{}",
-                self.last_modified_msg()
-            );
+            slot_panic!(self, "Attempted to `put` a value when the slot is already filled.");
         }
         self.put_unchecked(val);
         #[cfg(debug_assertions)]
@@ -282,13 +291,7 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn replace(&self, val: T) -> T {
         if self.is_empty.get() {
-            #[cfg(not(debug_assertions))]
-            panic!("Attempted to `replace` a value when the slot is already empty.");
-            #[cfg(debug_assertions)]
-            panic!(
-                "Attempted to `replace` a value when the slot is already empty.\n{}",
-                self.last_modified_msg()
-            );
+            slot_panic!(self, "Attempted to `replace` a value when the slot is already empty.");
         }
         let val = unsafe {
             mem::replace(
@@ -330,22 +333,10 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn swap(&self, other: &Self) {
         if self.is_empty.get() {
-            #[cfg(not(debug_assertions))]
-            panic!("Attempted to `swap` a value when this slot is already empty.");
-            #[cfg(debug_assertions)]
-            panic!(
-                "Attempted to `swap` a value when this slot is already empty.\n{}",
-                self.last_modified_msg()
-            );
+            slot_panic!(self, "Attempted to `swap` a value when this slot is already empty.");
         }
         if other.is_empty.get() {
-            #[cfg(not(debug_assertions))]
-            panic!("Attempted to `swap` a value when the other slot is already empty.");
-            #[cfg(debug_assertions)]
-            panic!(
-                "Attempted to `swap` a value when the other slot is already empty.\n{}",
-                other.last_modified_msg()
-            );
+            slot_panic!(self, "Attempted to `swap` a value when the other slot is already empty.");
         }
         unsafe {
             mem::swap(
@@ -472,17 +463,6 @@ impl<T> SlotCell<T> {
     pub fn into_inner(self) -> T {
         self.take()
     }
-
-    #[cfg(debug_assertions)]
-    fn last_modified_msg(&self) -> String {
-        let last_modified = self.last_modified.get();
-        format!(
-            "Last modified at {}:{}:{}",
-            last_modified.file(),
-            last_modified.line(),
-            last_modified.column(),
-        )
-    }
 }
 
 impl<T> Drop for SlotCell<T> {
@@ -506,7 +486,7 @@ impl<T> Debug for SlotCell<T>
 where
     T: Debug,
 {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let mut binding = f.debug_struct("SlotCell");
         let r = if self.is_empty.get() {
             binding.field("cell", &"EMPTY")
@@ -530,7 +510,7 @@ where
 {
     fn eq(&self, other: &Self) -> bool {
         let self_is_empty = self.is_empty.get();
-        if std::ptr::eq(self, other) {
+        if core::ptr::eq(self, other) {
             // Some types may not always be equal to themselves so we must check instead of just
             // returning `true` (e.g. NaN != NaN)
             if self_is_empty {
@@ -561,22 +541,22 @@ impl<T> Ord for SlotCell<T>
 where
     T: Ord,
 {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
         let self_is_empty = self.is_empty.get();
-        if std::ptr::eq(self, other) {
+        if core::ptr::eq(self, other) {
             // We do not need to check the inner, since unlike `PartialOrd`, `Ord` implies Total Order.
             // One of the mathematical requirements for Total Order is **Reflexivity**.
-            return std::cmp::Ordering::Equal;
+            return core::cmp::Ordering::Equal;
         }
         let other_is_empty = other.is_empty.get();
         if self_is_empty && other_is_empty {
-            return std::cmp::Ordering::Equal;
+            return core::cmp::Ordering::Equal;
         }
         if self_is_empty {
-            return std::cmp::Ordering::Less;
+            return core::cmp::Ordering::Less;
         }
         if other_is_empty {
-            return std::cmp::Ordering::Greater;
+            return core::cmp::Ordering::Greater;
         }
         let val_a = self.take_unchecked();
         let val_b = other.take_unchecked();
@@ -591,13 +571,13 @@ impl<T> PartialOrd for SlotCell<T>
 where
     T: PartialOrd,
 {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
         let self_is_empty = self.is_empty.get();
-        if std::ptr::eq(self, other) {
+        if core::ptr::eq(self, other) {
             // Some types may not always be ordered to themselves so we must check instead of just
             // returning `Equal`
             if self_is_empty {
-                return Some(std::cmp::Ordering::Equal);
+                return Some(core::cmp::Ordering::Equal);
             }
             let val = self.take_unchecked();
             let ord = val.partial_cmp(&val);
@@ -606,13 +586,13 @@ where
         }
         let other_is_empty = other.is_empty.get();
         if self_is_empty && other_is_empty {
-            return Some(std::cmp::Ordering::Equal);
+            return Some(core::cmp::Ordering::Equal);
         }
         if self_is_empty {
-            return Some(std::cmp::Ordering::Less);
+            return Some(core::cmp::Ordering::Less);
         }
         if other_is_empty {
-            return Some(std::cmp::Ordering::Greater);
+            return Some(core::cmp::Ordering::Greater);
         }
         let val_a = self.take_unchecked();
         let val_b = other.take_unchecked();
@@ -623,11 +603,11 @@ where
     }
 }
 
-impl<T> std::hash::Hash for SlotCell<T>
+impl<T> core::hash::Hash for SlotCell<T>
 where
-    T: std::hash::Hash,
+    T: core::hash::Hash,
 {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+    fn hash<H: core::hash::Hasher>(&self, state: &mut H) {
         if self.is_empty.get() {
             0usize.hash(state);
         } else {
@@ -700,7 +680,7 @@ impl<T> From<SlotCell<T>> for Option<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
+    use core::cmp::Ordering;
 
     use super::*;
 
@@ -968,7 +948,7 @@ mod tests {
     fn test_with_panic_safety() {
         let cell = SlotCell::new(vec![1, 2, 3]);
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
             cell.with(|_v| {
                 panic!("intentional panic");
             });
@@ -982,7 +962,7 @@ mod tests {
     fn test_update_panic_safety() {
         let cell = SlotCell::new(vec![1, 2, 3]);
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let result = std::panic::catch_unwind(core::panic::AssertUnwindSafe(|| {
             cell.update(|_v| {
                 panic!("intentional panic");
             });
