@@ -891,13 +891,12 @@ mod tests {
 
     #[test]
     fn test_slotcell_vs_refcell_size() {
-        use core::cell::{Cell, RefCell};
+        use core::cell::Cell;
         use core::mem::size_of;
 
         type T = u32;
 
         let slotcell_size = size_of::<SlotCell<T>>();
-        let refcell_size = size_of::<RefCell<T>>();
         let cell_option_size = size_of::<Cell<Option<T>>>();
 
         #[cfg(debug_assertions)]
@@ -918,6 +917,7 @@ mod tests {
                 "SlotCell<T> should be exactly Cell<Option<T>> in release mode"
             );
 
+            let refcell_size = size_of::<core::cell::RefCell<T>>();
             assert!(
                 refcell_size > slotcell_size,
                 "RefCell<T> should be larger than SlotCell<T> in release mode. Got {} and {}",
