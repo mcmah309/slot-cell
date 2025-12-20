@@ -168,10 +168,7 @@ impl<T> SlotCell<T> {
 
     /// Checks whether the slot is currently empty.
     ///
-    /// Returns `true` if the cell currently contains a value, `false` if it's empty.
-    ///
-    /// Note: Despite the method name, this returns `true` when the value is present
-    /// and `false` when taken/empty.
+    /// Returns `true` if the cell currently empty, `false` if it's filled.
     ///
     /// # Examples
     ///
@@ -187,6 +184,26 @@ impl<T> SlotCell<T> {
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.is_empty.get()
+    }
+
+    /// Checks whether the slot is currently empty.
+    ///
+    /// Returns `true` if the cell currently contains a value, `false` if it's empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use slot_cell::SlotCell;
+    ///
+    /// let cell = SlotCell::new(42);
+    /// assert!(cell.is_filled());  // Has value, not taken
+    ///
+    /// let _value = cell.take();
+    /// assert!(!cell.is_filled());   // Now empty/taken
+    /// ```
+    #[inline]
+    pub fn is_filled(&self) -> bool {
+        !self.is_empty.get()
     }
 
     /// Puts a value into the cell, filling an empty slot.
