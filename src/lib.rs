@@ -5,6 +5,8 @@ use core::cell::Cell;
 use core::fmt::Debug;
 use core::mem::MaybeUninit;
 use core::panic::Location;
+use std::cell::UnsafeCell;
+use std::{mem, ptr};
 
 /// A cell type that enforces borrowing semantics (take/put) for interior mutability.
 ///
@@ -66,7 +68,7 @@ use core::panic::Location;
 /// In debug builds, panic messages include the location of the last modification.
 pub struct SlotCell<T> {
     is_empty: Cell<bool>,
-    cell: Cell<MaybeUninit<T>>,
+    cell: UnsafeCell<MaybeUninit<T>>,
     #[cfg(debug_assertions)]
     last_modified: Cell<Location<'static>>,
 }
@@ -87,7 +89,7 @@ impl<T> SlotCell<T> {
     pub fn new(val: T) -> Self {
         Self {
             is_empty: Cell::new(false),
-            cell: Cell::new(MaybeUninit::new(val)),
+            cell: UnsafeCell::new(MaybeUninit::new(val)),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
         }
@@ -114,7 +116,7 @@ impl<T> SlotCell<T> {
     pub fn empty() -> Self {
         Self {
             is_empty: Cell::new(true),
-            cell: Cell::new(MaybeUninit::uninit()),
+            cell: UnsafeCell::new(MaybeUninit::uninit()),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
         }
@@ -162,8 +164,7 @@ impl<T> SlotCell<T> {
     fn take_unchecked(&self) -> T {
         debug_assert!(!self.is_empty.get());
         self.is_empty.set(true);
-        let val = self.cell.replace(MaybeUninit::uninit());
-        unsafe { val.assume_init() }
+        unsafe { ptr::read(self.cell.get()).assume_init() }
     }
 
     /// Checks whether the slot is currently empty.
@@ -249,7 +250,9 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     fn put_unchecked(&self, val: T) {
         debug_assert!(self.is_empty.get());
-        let _ = self.cell.replace(MaybeUninit::new(val));
+        unsafe {
+            ptr::write(self.cell.get(), MaybeUninit::new(val));
+        }
         self.is_empty.set(false);
     }
 
@@ -287,8 +290,13 @@ impl<T> SlotCell<T> {
                 self.last_modified_msg()
             );
         }
-        let val = self.cell.replace(MaybeUninit::new(val));
-        let val = unsafe { val.assume_init() };
+        let val = unsafe {
+            mem::replace(
+                self.cell.get().as_mut().unwrap_unchecked(),
+                MaybeUninit::new(val),
+            )
+            .assume_init()
+        };
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
         val
@@ -339,7 +347,12 @@ impl<T> SlotCell<T> {
                 other.last_modified_msg()
             );
         }
-        self.cell.swap(&other.cell);
+        unsafe {
+            mem::swap(
+                self.cell.get().as_mut().unwrap_unchecked(),
+                other.cell.get().as_mut().unwrap_unchecked(),
+            );
+        }
         #[cfg(debug_assertions)]
         self.last_modified.set(Location::caller().clone());
     }
@@ -479,9 +492,12 @@ impl<T> Drop for SlotCell<T> {
             return;
         }
         self.is_empty.set(true);
-        // Allow drop code to run without a move
         unsafe {
-            (*self.cell.as_ptr()).assume_init_drop();
+            self.cell
+                .get()
+                .as_mut()
+                .unwrap_unchecked()
+                .assume_init_drop();
         }
     }
 }
@@ -628,7 +644,7 @@ impl<T> Default for SlotCell<T> {
     fn default() -> Self {
         Self {
             is_empty: Cell::new(true),
-            cell: Cell::new(MaybeUninit::uninit()),
+            cell: UnsafeCell::new(MaybeUninit::uninit()),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
         }
@@ -652,7 +668,7 @@ impl<T> From<Option<T>> for SlotCell<T> {
         };
         Self {
             is_empty: Cell::new(is_empty),
-            cell: Cell::new(cell),
+            cell: UnsafeCell::new(cell),
             #[cfg(debug_assertions)]
             last_modified: Cell::new(Location::caller().clone()),
         }
