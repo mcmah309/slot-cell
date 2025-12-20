@@ -663,6 +663,8 @@ impl<T> From<SlotCell<T>> for Option<T> {
 
 #[cfg(test)]
 mod tests {
+    use std::cmp::Ordering;
+
     use super::*;
 
     #[test]
@@ -730,28 +732,99 @@ mod tests {
         cell.replace(10);
     }
 
-    // --- Trait Tests ---
+    // --- PartialEq & Eq Tests ---
 
     #[test]
-    fn test_equality() {
-        let a = SlotCell::new(5);
-        let b = SlotCell::new(5);
-        let c = SlotCell::new(6);
-        assert_eq!(a, b);
-        assert_ne!(a, c);
+    fn test_partial_eq_basics() {
+        let cell_a = SlotCell::new(10);
+        let cell_b = SlotCell::new(10);
+        let cell_c = SlotCell::new(20);
+        let empty_a: SlotCell<i32> = SlotCell::empty();
+        let empty_b: SlotCell<i32> = SlotCell::empty();
 
-        // Test equality with empty slots (they are equal)
-        let _ = a.take();
-        let _ = b.take();
-        assert_eq!(a, b);
+        assert_eq!(cell_a, cell_b); // Occupied equal
+        assert_ne!(cell_a, cell_c); // Occupied unequal
+        assert_eq!(empty_a, empty_b); // Empty equal
+        assert_ne!(cell_a, empty_a); // Occupied vs Empty
     }
 
     #[test]
-    fn test_ordering() {
-        let a = SlotCell::new(10);
-        let b = SlotCell::new(20);
-        assert!(a < b);
+    fn test_partial_eq_nan_identity() {
+        let nan = f32::NAN;
+        let cell = SlotCell::new(nan);
+
+        // Standard Rust behavior: NaN != NaN
+        assert!(
+            cell != cell,
+            "SlotCell with NaN should not equal itself via pointer identity"
+        );
+
+        let empty: SlotCell<f32> = SlotCell::empty();
+        assert_eq!(empty, empty, "Empty cells should always equal themselves");
     }
+
+    // --- PartialOrd & Ord Tests ---
+
+    #[test]
+    fn test_ord_total_order() {
+        let small = SlotCell::new(10);
+        let large = SlotCell::new(20);
+        let empty = SlotCell::empty();
+
+        assert_eq!(small.cmp(&large), Ordering::Less);
+        assert_eq!(large.cmp(&small), Ordering::Greater);
+        assert_eq!(small.cmp(&small), Ordering::Equal);
+
+        assert_eq!(empty.cmp(&small), Ordering::Less);
+        assert_eq!(small.cmp(&empty), Ordering::Greater);
+        assert_eq!(empty.cmp(&empty), Ordering::Equal);
+    }
+
+    #[test]
+    fn test_partial_ord_nan() {
+        let nan_cell = SlotCell::new(f32::NAN);
+        let val_cell = SlotCell::new(1.0f32);
+
+        assert_eq!(nan_cell.partial_cmp(&val_cell), None);
+
+        assert_eq!(
+            nan_cell.partial_cmp(&nan_cell),
+            None,
+            "NaN cell identity should be None"
+        );
+    }
+
+    #[test]
+    fn test_ptr_identity_optimization() {
+        let cell = SlotCell::new(5);
+        assert_eq!(cell.cmp(&cell), Ordering::Equal);
+    }
+
+    // --- State Persistence Tests ---
+
+    #[test]
+    fn test_state_integrity_after_compare() {
+        let cell_a = SlotCell::new(100);
+        let cell_b = SlotCell::new(100);
+
+        let _ = cell_a == cell_b;
+        let _ = cell_a.cmp(&cell_b);
+
+        assert!(
+            !cell_a.is_empty.get(),
+            "Cell should be occupied after comparison"
+        );
+        assert!(
+            !cell_b.is_empty.get(),
+            "Cell should be occupied after comparison"
+        );
+
+        // Verify values are still correct
+        let val = cell_a.take_unchecked();
+        assert_eq!(val, 100);
+    }
+
+    // ---Other ---
 
     #[test]
     fn test_debug_format() {
