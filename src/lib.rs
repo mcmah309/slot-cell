@@ -513,9 +513,9 @@ where
         let r = if self.is_empty.get() {
             binding.field("cell", &"EMPTY")
         } else {
-            let val = self.take_unchecked();
+            let val = self.take();
             let r = binding.field("cell", &val);
-            self.put_unchecked(val);
+            self.put(val);
             r
         };
         #[cfg(debug_assertions)]
@@ -538,9 +538,9 @@ where
             if self_is_empty {
                 return true;
             }
-            let val = self.take_unchecked();
+            let val = self.take();
             let eq = val == val;
-            self.put_unchecked(val);
+            self.put(val);
             return eq;
         }
         let other_is_empty = other.is_empty.get();
@@ -550,11 +550,11 @@ where
         if self_is_empty || other_is_empty {
             return false;
         }
-        let val_a = self.take_unchecked();
-        let val_b = other.take_unchecked();
+        let val_a = self.take();
+        let val_b = other.take();
         let eq = val_a == val_b;
-        self.put_unchecked(val_a);
-        other.put_unchecked(val_b);
+        self.put(val_a);
+        other.put(val_b);
         eq
     }
 }
@@ -580,11 +580,11 @@ where
         if other_is_empty {
             return core::cmp::Ordering::Greater;
         }
-        let val_a = self.take_unchecked();
-        let val_b = other.take_unchecked();
+        let val_a = self.take();
+        let val_b = other.take();
         let ord = val_a.cmp(&val_b);
-        self.put_unchecked(val_a);
-        other.put_unchecked(val_b);
+        self.put(val_a);
+        other.put(val_b);
         ord
     }
 }
@@ -601,9 +601,9 @@ where
             if self_is_empty {
                 return Some(core::cmp::Ordering::Equal);
             }
-            let val = self.take_unchecked();
+            let val = self.take();
             let ord = val.partial_cmp(&val);
-            self.put_unchecked(val);
+            self.put(val);
             return ord;
         }
         let other_is_empty = other.is_empty.get();
@@ -616,11 +616,11 @@ where
         if other_is_empty {
             return Some(core::cmp::Ordering::Greater);
         }
-        let val_a = self.take_unchecked();
-        let val_b = other.take_unchecked();
+        let val_a = self.take();
+        let val_b = other.take();
         let ord = val_a.partial_cmp(&val_b);
-        self.put_unchecked(val_a);
-        other.put_unchecked(val_b);
+        self.put(val_a);
+        other.put(val_b);
         ord
     }
 }
@@ -633,9 +633,9 @@ where
         if self.is_empty.get() {
             0usize.hash(state);
         } else {
-            let val = self.take_unchecked();
+            let val = self.take();
             val.hash(state);
-            self.put_unchecked(val);
+            self.put(val);
         }
     }
 }
@@ -703,6 +703,7 @@ impl<T> From<SlotCell<T>> for Option<T> {
 #[cfg(test)]
 mod tests {
     use core::cmp::Ordering;
+    use std::rc::Rc;
 
     use super::*;
 
@@ -800,6 +801,25 @@ mod tests {
 
         let empty: SlotCell<f32> = SlotCell::empty();
         assert_eq!(empty, empty, "Empty cells should always equal themselves");
+    }
+
+    #[test]
+    fn test_partial_eq_no_panic_or_ub_on_cycles() {
+        struct Link(Rc<SlotCell<Link>>);
+
+        impl PartialEq for Link {
+            fn eq(&self, _other: &Self) -> bool {
+                *self.0 == *self.0
+            }
+        }
+
+        let cell_a = Rc::new(SlotCell::empty());
+        let cell_b = Rc::new(SlotCell::empty());
+
+        cell_a.put(Link(Rc::clone(&cell_a)));
+        cell_b.put(Link(Rc::clone(&cell_a)));
+
+        let _ = *cell_a == *cell_b;
     }
 
     // --- PartialOrd & Ord Tests ---
