@@ -819,7 +819,6 @@ mod tests {
             "Cell should be occupied after comparison"
         );
 
-        // Verify values are still correct
         let val = cell_a.take_unchecked();
         assert_eq!(val, 100);
     }
