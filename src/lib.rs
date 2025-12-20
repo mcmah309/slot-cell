@@ -161,8 +161,8 @@ impl<T> SlotCell<T> {
     #[cfg_attr(debug_assertions, track_caller)]
     fn take_unchecked(&self) -> T {
         debug_assert!(!self.is_empty.get());
-        let val = self.cell.replace(MaybeUninit::uninit());
         self.is_empty.set(true);
+        let val = self.cell.replace(MaybeUninit::uninit());
         unsafe { val.assume_init() }
     }
 
@@ -456,12 +456,16 @@ impl<T> SlotCell<T> {
 }
 
 impl<T> Drop for SlotCell<T> {
+    #[inline]
     fn drop(&mut self) {
         if self.is_empty.get() {
             return;
         }
-        // Allow drop code to run
-        let _ = self.take_unchecked();
+        self.is_empty.set(true);
+        // Allow drop code to run without a move
+        unsafe {
+            (*self.cell.as_ptr()).assume_init_drop();
+        }
     }
 }
 
