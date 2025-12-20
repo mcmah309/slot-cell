@@ -341,6 +341,9 @@ impl<T> SlotCell<T> {
     #[inline]
     #[cfg_attr(debug_assertions, track_caller)]
     pub fn swap(&self, other: &Self) {
+        if ptr::eq(self, other) {
+            return;
+        }
         if self.is_empty.get() {
             slot_panic!(
                 self,
