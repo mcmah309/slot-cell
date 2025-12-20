@@ -75,11 +75,11 @@ Measured on a standard Criterion suite comparing `SlotCell<T>::take/put` vs `Ref
 
 | Type | Scenario | `RefCell` (Time) | `SlotCell` (Time) | Difference |
 | --- | --- | --- | --- | --- |
-| **-** | Access Overhead | 1.31 ns | 586.05 ps | ~55% Faster |
-| **i32 (4-byte)** | Primitive Update | 1.49 ns | 640.77 ps | ~57% Faster |
-| **String (24-byte)** | Push Char | 1.34 ns | 5.79 ns | ~4.3x Slower |
-| **Large Struct (~1KB)** | Stack Only | 2.24 ns | 132.61 ns | ~59x Slower |
-| **Box\<Large Struct\> (8-byte)** | Heap | 2.24 ns | 2.23 ns | ~0.4% Faster |
+| **-** | Access Overhead | 1.31 ns | 586.05 ps | 2.2x Faster |
+| **i32 (4-byte)** | Primitive Update | 1.49 ns | 640.77 ps | 2.3x Faster |
+| **String (24-byte)** | Push Char | 1.34 ns | 5.79 ns | 4.3x Slower |
+| **Large Struct (~1KB)** | Stack Only | 2.24 ns | 132.61 ns | 59x Slower |
+| **Box\<Large Struct\> (8-byte)** | Heap | 2.24 ns | 2.23 ns | Parity |
 
 
 ---
